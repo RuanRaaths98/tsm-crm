@@ -33,6 +33,10 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# local lead import files
+supabase/import-formspree-*.sql
+scripts/generate-formspree-import.mjs
+
 # vercel
 .vercel
 

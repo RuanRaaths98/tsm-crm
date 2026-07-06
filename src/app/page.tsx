@@ -67,7 +67,7 @@ type SectionId = (typeof navItems)[number]["id"];
 const statusStyles: Record<string, string> = {
   New: "border-sky-200 bg-sky-50 text-sky-700",
   Contacted: "border-cyan-200 bg-cyan-50 text-cyan-700",
-  Qualified: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Qualified: "border-green-300 bg-green-50 text-green-800",
   "Proposal Sent": "border-amber-200 bg-amber-50 text-amber-800",
   Won: "border-emerald-300 bg-emerald-100 text-emerald-800",
   Lost: "border-zinc-200 bg-zinc-100 text-zinc-600",
@@ -77,6 +77,15 @@ const statusStyles: Record<string, string> = {
   "To Do": "border-zinc-200 bg-zinc-50 text-zinc-700",
   "In Progress": "border-sky-200 bg-sky-50 text-sky-700",
   Done: "border-emerald-200 bg-emerald-50 text-emerald-700",
+};
+
+const pipelineColumnStyles: Record<LeadStatus, string> = {
+  New: "border-sky-200 bg-sky-50/70",
+  Contacted: "border-cyan-200 bg-cyan-50/70",
+  Qualified: "border-green-300 bg-green-50/80",
+  "Proposal Sent": "border-amber-200 bg-amber-50/75",
+  Won: "border-emerald-300 bg-emerald-50/80",
+  Lost: "border-zinc-200 bg-zinc-50",
 };
 
 const temperatureStyles: Record<LeadTemperature, string> = {
@@ -1273,11 +1282,11 @@ function PipelineView({
       {pipelineStatuses.map((status) => {
         const columnLeads = leads.filter((lead) => lead.status === status);
         return (
-          <Card key={status} className="min-w-72 rounded-md border-zinc-200 bg-white shadow-none">
+          <Card key={status} className={`min-w-72 rounded-md shadow-none ${pipelineColumnStyles[status]}`}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm">{status}</CardTitle>
-                <Badge variant="outline" className="rounded-md">{columnLeads.length}</Badge>
+                <Badge variant="outline" className={`rounded-md ${statusStyles[status]}`}>{columnLeads.length}</Badge>
               </div>
             </CardHeader>
             <CardContent className="grid gap-3">
