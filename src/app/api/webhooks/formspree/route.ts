@@ -33,6 +33,14 @@ export async function POST(request: Request) {
   try {
     const supabase = getSupabaseServiceClient();
     const lead = normalizeFormspreeLead(parsed.data);
+
+    if (!lead.email && !lead.phone) {
+      return NextResponse.json({
+        status: "ignored",
+        reason: "Submission did not include an email or phone number.",
+      });
+    }
+
     const duplicateFilters = [
       lead.email ? `email.eq.${lead.email}` : null,
       lead.phone ? `phone.eq.${lead.phone}` : null,
