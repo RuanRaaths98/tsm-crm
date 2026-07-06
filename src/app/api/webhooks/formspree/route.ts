@@ -2,6 +2,27 @@ import { NextResponse } from "next/server";
 import { formspreeLeadSchema, normalizeFormspreeLead } from "@/lib/formspree";
 import { getSupabaseServiceClient } from "@/lib/supabase-server";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unwrapFormspreePayload(payload: unknown) {
+  if (!isRecord(payload) || !isRecord(payload.submission)) {
+    return payload;
+  }
+
+  const submission = payload.submission;
+
+  if (isRecord(submission.data)) {
+    return {
+      ...submission.data,
+      submittedAt: submission.submitted_at ?? submission.created_at,
+    };
+  }
+
+  return submission;
+}
+
 export async function GET() {
   return NextResponse.json({
     status: "ok",
@@ -38,7 +59,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Webhook body must be valid JSON." }, { status: 400 });
   }
 
-  const parsed = formspreeLeadSchema.safeParse(payload);
+  const unwrappedPayload = unwrapFormspreePayload(payload);
+  const parsed = formspreeLeadSchema.safeParse(unwrappedPayload);
 
   if (!parsed.success) {
     console.warn("[formspree-webhook] invalid submission", parsed.error.flatten());
@@ -55,6 +77,7 @@ export async function POST(request: Request) {
     if (!lead.email && !lead.phone) {
       console.info("[formspree-webhook] ignored submission without email or phone", {
         keys: Object.keys(parsed.data),
+        originalKeys: isRecord(payload) ? Object.keys(payload) : [],
       });
       return NextResponse.json({
         status: "ignored",
