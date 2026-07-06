@@ -29,13 +29,14 @@ export default function LoginPage() {
     const password = String(form.get("password"));
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setIsLoading(false);
 
     if (error) {
+      setIsLoading(false);
       setMessage(error.message);
       return;
     }
 
+    await supabase.auth.getSession();
     window.location.href = "/";
   }
 
