@@ -14,7 +14,6 @@ import {
   ClipboardList,
   Flame,
   LayoutDashboard,
-  ListFilter,
   Plus,
   Search,
   Settings,
@@ -111,6 +110,23 @@ type LeadRow = {
   updated_at: string | null;
 };
 
+type ClientRow = {
+  id: string;
+  client_name: string;
+  contact_person: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  website: string | null;
+  services: string[] | null;
+  monthly_retainer_value: number | string | null;
+  start_date: string | null;
+  status: "Active" | "Paused" | "Cancelled";
+  notes: string | null;
+  original_lead_id: string | null;
+  assigned_to: string | null;
+};
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -140,6 +156,25 @@ function mapLeadRow(row: LeadRow, profileNames: Map<string, string>): Lead {
     internalNotes: row.internal_notes ?? "",
     createdAt: row.created_at ?? now,
     updatedAt: row.updated_at ?? now,
+  };
+}
+
+function mapClientRow(row: ClientRow, profileNames: Map<string, string>): Client {
+  return {
+    id: row.id,
+    clientName: row.client_name,
+    contactPerson: row.contact_person ?? "",
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    company: row.company ?? "",
+    website: row.website ?? "",
+    services: row.services ?? [],
+    monthlyRetainerValue: Number(row.monthly_retainer_value ?? 0),
+    startDate: row.start_date ?? format(new Date(), "yyyy-MM-dd"),
+    status: row.status,
+    notes: row.notes ?? "",
+    originalLeadId: row.original_lead_id ?? undefined,
+    assignedTo: row.assigned_to ? profileNames.get(row.assigned_to) ?? "Assigned" : "Unassigned",
   };
 }
 
@@ -190,6 +225,7 @@ export default function Home() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
   const [crmNotice, setCrmNotice] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState<string>(initialClients[0]?.id ?? "");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
@@ -198,7 +234,7 @@ export default function Home() {
   const [clientStatusFilter, setClientStatusFilter] = useState("All");
 
   useEffect(() => {
-    async function loadLiveLeads() {
+    async function loadLiveData() {
       const supabase = getSupabaseBrowserClient();
 
       if (!supabase) {
@@ -239,10 +275,26 @@ export default function Home() {
       }
 
       setLeads(((leadRows ?? []) as LeadRow[]).map((lead) => mapLeadRow(lead, profileNames)));
+      const { data: clientRows, error: clientError } = await supabase
+        .from("clients")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (clientError) {
+        setCrmNotice(`Could not load Supabase clients: ${clientError.message}`);
+        return;
+      }
+
+      const liveClients = ((clientRows ?? []) as ClientRow[]).map((client) =>
+        mapClientRow(client, profileNames),
+      );
+
+      setClients(liveClients);
+      setSelectedClientId((current) => current || liveClients[0]?.id || "");
       setCrmNotice("");
     }
 
-    loadLiveLeads();
+    loadLiveData();
   }, []);
 
   const filteredLeads = useMemo(() => {
@@ -378,28 +430,125 @@ export default function Home() {
     }
   }
 
-  function convertLead(lead: Lead) {
+  async function convertLead(lead: Lead) {
     if (clients.some((client) => client.originalLeadId === lead.id)) return;
-    setClients((current) => [
-      {
-        id: `client-${Date.now()}`,
-        clientName: `${lead.companyName} Growth`,
-        contactPerson: lead.fullName,
-        email: lead.email,
-        phone: lead.phone,
-        company: lead.companyName,
-        website: "",
-        services: [lead.serviceInterested],
-        monthlyRetainerValue: lead.budget,
-        startDate: format(today, "yyyy-MM-dd"),
-        status: "Active",
-        notes: lead.internalNotes,
-        originalLeadId: lead.id,
-        assignedTo: lead.assignedTo,
-      },
-      ...current,
-    ]);
+    const newClient: Client = {
+      id: `client-${Date.now()}`,
+      clientName: `${lead.companyName || lead.fullName} Growth`,
+      contactPerson: lead.fullName,
+      email: lead.email,
+      phone: lead.phone,
+      company: lead.companyName,
+      website: "",
+      services: [lead.serviceInterested].filter(Boolean),
+      monthlyRetainerValue: lead.budget,
+      startDate: format(new Date(), "yyyy-MM-dd"),
+      status: "Active",
+      notes: lead.internalNotes,
+      originalLeadId: lead.id,
+      assignedTo: lead.assignedTo,
+    };
+    const assignedProfile = profiles.find((profile) => profile.full_name === lead.assignedTo);
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("clients")
+        .insert({
+          client_name: newClient.clientName,
+          contact_person: newClient.contactPerson,
+          email: newClient.email || null,
+          phone: newClient.phone || null,
+          company: newClient.company,
+          website: newClient.website,
+          services: newClient.services,
+          monthly_retainer_value: newClient.monthlyRetainerValue,
+          start_date: newClient.startDate,
+          status: newClient.status,
+          notes: newClient.notes,
+          original_lead_id: lead.id,
+          assigned_to: assignedProfile?.id ?? null,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setCrmNotice(`Could not convert lead to client: ${error.message}`);
+        return;
+      }
+
+      const profileNames = new Map(profiles.map((profile) => [profile.id, profile.full_name]));
+      const savedClient = mapClientRow(data as ClientRow, profileNames);
+      setClients((current) => [savedClient, ...current]);
+      setSelectedClientId(savedClient.id);
+    } else {
+      setClients((current) => [newClient, ...current]);
+      setSelectedClientId(newClient.id);
+    }
     updateLeadStatus(lead.id, "Won");
+  }
+
+  async function addClient(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const assignedTo = String(form.get("assignedTo") || "Ruan");
+    const assignedProfile = profiles.find((profile) => profile.full_name === assignedTo);
+    const service = String(form.get("service") || "");
+    const client: Client = {
+      id: `client-${Date.now()}`,
+      clientName: String(form.get("clientName") || form.get("company") || "New client"),
+      contactPerson: String(form.get("contactPerson") || ""),
+      email: String(form.get("email") || ""),
+      phone: String(form.get("phone") || ""),
+      company: String(form.get("company") || ""),
+      website: String(form.get("website") || ""),
+      services: service ? [service] : [],
+      monthlyRetainerValue: Number(form.get("monthlyRetainerValue") || 0),
+      startDate: String(form.get("startDate") || format(new Date(), "yyyy-MM-dd")),
+      status: String(form.get("status") || "Active") as Client["status"],
+      notes: String(form.get("notes") || ""),
+      assignedTo,
+    };
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("clients")
+        .insert({
+          client_name: client.clientName,
+          contact_person: client.contactPerson,
+          email: client.email || null,
+          phone: client.phone || null,
+          company: client.company,
+          website: client.website,
+          services: client.services,
+          monthly_retainer_value: client.monthlyRetainerValue,
+          start_date: client.startDate,
+          status: client.status,
+          notes: client.notes,
+          assigned_to: assignedProfile?.id ?? null,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setCrmNotice(`Could not create client: ${error.message}`);
+        return;
+      }
+
+      const profileNames = new Map(profiles.map((profile) => [profile.id, profile.full_name]));
+      const savedClient = mapClientRow(data as ClientRow, profileNames);
+      setClients((current) => [savedClient, ...current]);
+      setSelectedClientId(savedClient.id);
+      setCrmNotice("Client saved.");
+      formElement.reset();
+      return;
+    }
+
+    setClients((current) => [client, ...current]);
+    setSelectedClientId(client.id);
+    formElement.reset();
   }
 
   const visibleClients = clients.filter((client) => {
@@ -408,6 +557,8 @@ export default function Home() {
       .includes(query.toLowerCase());
     return matchesQuery && (clientStatusFilter === "All" || client.status === clientStatusFilter);
   });
+  const selectedClient =
+    visibleClients.find((client) => client.id === selectedClientId) ?? visibleClients[0] ?? null;
 
   return (
     <main className="min-h-[100dvh] bg-[#f7f8f5] text-zinc-950">
@@ -516,6 +667,11 @@ export default function Home() {
             {section === "clients" && (
               <ClientsView
                 clients={visibleClients}
+                selectedClient={selectedClient}
+                selectedClientId={selectedClientId}
+                setSelectedClientId={setSelectedClientId}
+                addClient={addClient}
+                teamMembers={teamMembers}
                 clientStatusFilter={clientStatusFilter}
                 setClientStatusFilter={setClientStatusFilter}
               />
@@ -852,52 +1008,179 @@ function PipelineView({
 
 function ClientsView({
   clients,
+  selectedClient,
+  selectedClientId,
+  setSelectedClientId,
+  addClient,
+  teamMembers,
   clientStatusFilter,
   setClientStatusFilter,
 }: {
   clients: Client[];
+  selectedClient: Client | null;
+  selectedClientId: string;
+  setSelectedClientId: (value: string) => void;
+  addClient: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
   clientStatusFilter: string;
   setClientStatusFilter: (value: string) => void;
 }) {
   return (
-    <>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm text-zinc-600">
-          <ListFilter className="size-4" />
-          Filter clients
-        </div>
-        <SelectField value={clientStatusFilter} onChange={setClientStatusFilter}>
-          {["All", "Active", "Paused", "Cancelled"].map((value) => <option key={value}>{value}</option>)}
-        </SelectField>
-      </div>
-      <div className="grid gap-4 xl:grid-cols-3">
-        {clients.map((client) => (
-          <Card key={client.id} className="rounded-md border-zinc-200 bg-white shadow-none">
-            <CardHeader>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base">{client.clientName}</CardTitle>
-                  <p className="mt-1 text-sm text-zinc-500">{client.contactPerson} · {client.company}</p>
+    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      <Card className="rounded-md border-zinc-200 bg-white shadow-none">
+        <CardHeader className="gap-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">Clients</CardTitle>
+              <p className="mt-1 text-sm text-zinc-500">{clients.length} visible accounts</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <SelectField value={clientStatusFilter} onChange={setClientStatusFilter} className="w-full sm:w-40">
+                {["All", "Active", "Paused", "Cancelled"].map((value) => <option key={value}>{value}</option>)}
+              </SelectField>
+              <CreateClientDialog addClient={addClient} teamMembers={teamMembers} />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-2">
+          {clients.length === 0 && (
+            <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center">
+              <p className="text-sm font-medium">No clients yet</p>
+              <p className="mt-2 text-sm text-zinc-500">Create a client manually or convert a won lead.</p>
+            </div>
+          )}
+          {clients.map((client) => {
+            const isSelected = client.id === selectedClientId || client.id === selectedClient?.id;
+
+            return (
+              <button
+                key={client.id}
+                onClick={() => setSelectedClientId(client.id)}
+                className={`grid gap-3 rounded-md border p-4 text-left transition active:translate-y-px ${
+                  isSelected
+                    ? "border-[#f70805] bg-red-50/60"
+                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">{client.clientName}</p>
+                    <p className="mt-1 truncate text-xs text-zinc-500">
+                      {client.contactPerson || "No contact"} · {client.company || "No company"}
+                    </p>
+                  </div>
+                  <StatusBadge value={client.status} />
                 </div>
-                <StatusBadge value={client.status} />
+                <div className="grid grid-cols-2 gap-3 text-xs text-zinc-500">
+                  <span>{client.assignedTo}</span>
+                  <span className="text-right font-mono">{currency(client.monthlyRetainerValue)}</span>
+                </div>
+              </button>
+            );
+          })}
+        </CardContent>
+      </Card>
+
+      <Card className="rounded-md border-zinc-200 bg-white shadow-none">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-base">{selectedClient?.clientName ?? "Select a client"}</CardTitle>
+              <p className="mt-1 text-sm text-zinc-500">
+                {selectedClient
+                  ? `${selectedClient.contactPerson || "No contact person"} · ${selectedClient.company || "No company"}`
+                  : "Choose a client from the list to view details."}
+              </p>
+            </div>
+            {selectedClient && <StatusBadge value={selectedClient.status} />}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!selectedClient ? (
+            <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-8 text-center text-sm text-zinc-500">
+              No client selected.
+            </div>
+          ) : (
+            <div className="grid gap-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Info label="Monthly retainer" value={currency(selectedClient.monthlyRetainerValue)} />
+                <Info label="Start date" value={format(parseISO(selectedClient.startDate), "MMM d, yyyy")} />
+                <Info label="Assigned to" value={selectedClient.assignedTo} />
+                <Info label="Website" value={selectedClient.website.replace("https://", "") || "Not set"} />
+                <Info label="Email" value={selectedClient.email || "Not set"} />
+                <Info label="Phone" value={selectedClient.phone || "Not set"} />
               </div>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <Info label="Retainer" value={currency(client.monthlyRetainerValue)} />
-                <Info label="Started" value={format(parseISO(client.startDate), "MMM d, yyyy")} />
-                <Info label="Owner" value={client.assignedTo} />
-                <Info label="Website" value={client.website.replace("https://", "") || "Not set"} />
+              <Separator />
+              <div>
+                <p className="text-sm font-medium">Services</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedClient.services.length ? (
+                    selectedClient.services.map((service) => (
+                      <Badge key={service} variant="outline" className="rounded-md">
+                        {service}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-sm text-zinc-500">No services set</span>
+                  )}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {client.services.map((service) => <Badge key={service} variant="outline" className="rounded-md">{service}</Badge>)}
+              <div>
+                <p className="text-sm font-medium">Notes</p>
+                <p className="mt-3 rounded-md bg-zinc-50 p-4 text-sm leading-6 text-zinc-600">
+                  {selectedClient.notes || "No notes yet."}
+                </p>
               </div>
-              <p className="rounded-md bg-zinc-50 p-3 text-sm leading-6 text-zinc-600">{client.notes}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function CreateClientDialog({
+  addClient,
+  teamMembers,
+}: {
+  addClient: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button className="h-10 rounded-md bg-[#f70805] text-white hover:bg-[#d80f0c]" />}>
+        <Plus className="size-4" />
+        New client
+      </DialogTrigger>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Create client</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={addClient} className="grid gap-4 md:grid-cols-2">
+          <Field name="clientName" label="Client name" placeholder="Atlas Dentistry Growth" />
+          <Field name="contactPerson" label="Contact person" placeholder="Primary contact" />
+          <Field name="email" label="Email" placeholder="client@company.com" type="email" />
+          <Field name="phone" label="Phone" placeholder="+27..." />
+          <Field name="company" label="Company" placeholder="Company name" />
+          <Field name="website" label="Website" placeholder="https://company.com" />
+          <SelectBlock name="service" label="Service" values={services} />
+          <Field name="monthlyRetainerValue" label="Monthly retainer" placeholder="25000" type="number" />
+          <Field name="startDate" label="Start date" type="date" />
+          <SelectBlock name="status" label="Status" values={["Active", "Paused", "Cancelled"]} />
+          <SelectBlock name="assignedTo" label="Assigned team member" values={teamMembers.map((user) => user.name)} />
+          <div className="md:col-span-2">
+            <Label className="text-sm">Notes</Label>
+            <Textarea name="notes" className="mt-2 min-h-24 rounded-md" />
+          </div>
+          <Button
+            type="submit"
+            className="md:col-span-2 h-10 rounded-md bg-[#f70805] hover:bg-[#d80f0c]"
+          >
+            Create client
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
