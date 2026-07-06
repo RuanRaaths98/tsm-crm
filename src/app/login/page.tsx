@@ -77,9 +77,13 @@ export default function LoginPage() {
                 <Input id="password" name="password" type="password" autoComplete="current-password" required className="rounded-md" />
               </div>
               {message && <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">{message}</p>}
-              <Button className="rounded-md bg-[#f70805] hover:bg-[#d80f0c]" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="h-10 rounded-md bg-[#f70805] hover:bg-[#d80f0c]"
+                disabled={isLoading}
+              >
                 {isLoading && <Loader2 className="size-4 animate-spin" />}
-                Sign in
+                {isLoading ? "Signing in..." : "Sign in"}
               </Button>
             </form>
           </CardContent>
