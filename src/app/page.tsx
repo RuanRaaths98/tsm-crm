@@ -183,7 +183,7 @@ export default function Home() {
       message: String(form.get("message") || ""),
       status: "New",
       temperature: String(form.get("temperature") || "Warm") as LeadTemperature,
-      assignedTo: String(form.get("assignedTo") || "Mara Venter"),
+      assignedTo: String(form.get("assignedTo") || "Ruan"),
       nextFollowUpDate: String(form.get("nextFollowUpDate") || format(today, "yyyy-MM-dd")),
       internalNotes: String(form.get("internalNotes") || ""),
       createdAt: new Date().toISOString(),
@@ -380,7 +380,12 @@ function QuickLeadDialog({ addLead }: { addLead: (event: FormEvent<HTMLFormEleme
             <Label className="text-sm">Internal notes</Label>
             <Textarea name="internalNotes" className="mt-2 min-h-20 rounded-md" />
           </div>
-          <Button className="md:col-span-2 rounded-md bg-[#f70805] hover:bg-[#d80f0c]">Create lead</Button>
+          <Button
+            type="submit"
+            className="md:col-span-2 h-10 rounded-md bg-[#f70805] hover:bg-[#d80f0c]"
+          >
+            Create lead
+          </Button>
         </form>
       </DialogContent>
     </Dialog>

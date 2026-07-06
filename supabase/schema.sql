@@ -181,6 +181,7 @@ create policy "settings everyone read sources" on public.lead_sources
 for select using (auth.role() = 'authenticated');
 
 insert into public.services (name) values
+  ('Full Package'),
   ('Paid Media Management'),
   ('AI Sales Automation'),
   ('CRM Implementation'),
