@@ -270,6 +270,26 @@ function SelectField({
   );
 }
 
+function StatusSelect({
+  value,
+  onChange,
+}: {
+  value: LeadStatus;
+  onChange: (value: LeadStatus) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as LeadStatus)}
+      className={`h-8 rounded-md border px-3 text-sm font-medium outline-none transition focus:ring-4 ${statusStyles[value]}`}
+    >
+      {pipelineStatuses.map((status) => (
+        <option key={status}>{status}</option>
+      ))}
+    </select>
+  );
+}
+
 function StatusBadge({ value }: { value: string }) {
   return (
     <Badge variant="outline" className={`rounded-md ${statusStyles[value] ?? ""}`}>
@@ -1237,9 +1257,10 @@ function LeadsView(props: {
                 </TableCell>
                 <TableCell>{lead.serviceInterested}</TableCell>
                 <TableCell>
-                  <SelectField value={lead.status} onChange={(value) => props.updateLeadStatus(lead.id, value as LeadStatus)} className="h-8">
-                    {pipelineStatuses.map((status) => <option key={status}>{status}</option>)}
-                  </SelectField>
+                  <StatusSelect
+                    value={lead.status}
+                    onChange={(value) => props.updateLeadStatus(lead.id, value)}
+                  />
                 </TableCell>
                 <TableCell><TemperatureBadge value={lead.temperature} /></TableCell>
                 <TableCell>
