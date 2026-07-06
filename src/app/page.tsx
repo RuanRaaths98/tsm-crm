@@ -32,7 +32,7 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  activities,
+  activities as initialActivities,
   clients as initialClients,
   currency,
   leadSources,
@@ -41,6 +41,7 @@ import {
   services,
   tasks as initialTasks,
   users,
+  type Activity as CrmActivity,
   type Client,
   type Lead,
   type LeadStatus,
@@ -50,7 +51,7 @@ import {
 } from "@/lib/crm-data";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
-const today = parseISO("2026-06-30");
+const today = new Date();
 
 const navItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -127,6 +128,35 @@ type ClientRow = {
   assigned_to: string | null;
 };
 
+type ActivityRow = {
+  id: string;
+  entity_type: "lead" | "client";
+  entity_id: string;
+  type: string;
+  message: string;
+  actor: string;
+  created_at: string | null;
+};
+
+type TaskRow = {
+  id: string;
+  title: string;
+  description: string | null;
+  due_date: string;
+  priority: "Low" | "Medium" | "High";
+  status: "To Do" | "In Progress" | "Done";
+  assigned_user: string | null;
+  related_type: "lead" | "client";
+  related_id: string;
+};
+
+type RelatedItem = {
+  value: string;
+  label: string;
+  type: "lead" | "client";
+  id: string;
+};
+
 function initials(name: string) {
   return name
     .split(" ")
@@ -178,6 +208,37 @@ function mapClientRow(row: ClientRow, profileNames: Map<string, string>): Client
   };
 }
 
+function mapActivityRow(row: ActivityRow): CrmActivity {
+  return {
+    id: row.id,
+    entityId: row.entity_id,
+    entityType: row.entity_type,
+    type: row.type,
+    message: row.message,
+    actor: row.actor,
+    createdAt: row.created_at ?? new Date().toISOString(),
+  };
+}
+
+function mapTaskRow(
+  row: TaskRow,
+  profileNames: Map<string, string>,
+  relatedNames: Map<string, string>,
+): Task {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description ?? "",
+    dueDate: row.due_date,
+    priority: row.priority,
+    status: row.status,
+    assignedUser: row.assigned_user ? profileNames.get(row.assigned_user) ?? "Assigned" : "Unassigned",
+    relatedType: row.related_type,
+    relatedId: row.related_id,
+    relatedName: relatedNames.get(`${row.related_type}:${row.related_id}`) ?? "Linked record",
+  };
+}
+
 function SelectField({
   value,
   onChange,
@@ -221,7 +282,8 @@ export default function Home() {
   const [section, setSection] = useState<SectionId>("dashboard");
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [clients, setClients] = useState<Client[]>(initialClients);
-  const [tasks] = useState<Task[]>(initialTasks);
+  const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [activityLog, setActivityLog] = useState<CrmActivity[]>(initialActivities);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
   const [crmNotice, setCrmNotice] = useState("");
@@ -274,7 +336,8 @@ export default function Home() {
         return;
       }
 
-      setLeads(((leadRows ?? []) as LeadRow[]).map((lead) => mapLeadRow(lead, profileNames)));
+      const liveLeads = ((leadRows ?? []) as LeadRow[]).map((lead) => mapLeadRow(lead, profileNames));
+      setLeads(liveLeads);
       const { data: clientRows, error: clientError } = await supabase
         .from("clients")
         .select("*")
@@ -291,6 +354,36 @@ export default function Home() {
 
       setClients(liveClients);
       setSelectedClientId((current) => current || liveClients[0]?.id || "");
+
+      const relatedNames = new Map<string, string>([
+        ...liveLeads.map((lead) => [`lead:${lead.id}`, lead.companyName || lead.fullName] as const),
+        ...liveClients.map((client) => [`client:${client.id}`, client.clientName] as const),
+      ]);
+
+      const { data: taskRows, error: taskError } = await supabase
+        .from("tasks")
+        .select("*")
+        .order("due_date", { ascending: true });
+
+      if (taskError) {
+        setCrmNotice(`Could not load Supabase tasks: ${taskError.message}`);
+        return;
+      }
+
+      setTasks(((taskRows ?? []) as TaskRow[]).map((task) => mapTaskRow(task, profileNames, relatedNames)));
+
+      const { data: activityRows, error: activityError } = await supabase
+        .from("activities")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (activityError) {
+        setCrmNotice(`Could not load recent activity: ${activityError.message}`);
+        return;
+      }
+
+      setActivityLog(((activityRows ?? []) as ActivityRow[]).map(mapActivityRow));
       setCrmNotice("");
     }
 
@@ -330,6 +423,23 @@ export default function Home() {
       pipelineValue,
     };
   }, [clients, leads, tasks]);
+
+  const relatedItems = useMemo<RelatedItem[]>(() => {
+    return [
+      ...leads.map((lead) => ({
+        value: `lead:${lead.id}`,
+        label: `Lead · ${lead.companyName || lead.fullName}`,
+        type: "lead" as const,
+        id: lead.id,
+      })),
+      ...clients.map((client) => ({
+        value: `client:${client.id}`,
+        label: `Client · ${client.clientName}`,
+        type: "client" as const,
+        id: client.id,
+      })),
+    ];
+  }, [clients, leads]);
 
   async function addLead(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -551,6 +661,81 @@ export default function Home() {
     formElement.reset();
   }
 
+  async function addTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const relatedValue = String(form.get("related") || relatedItems[0]?.value || "");
+    const [relatedTypeRaw, relatedId] = relatedValue.split(":");
+    const relatedType = relatedTypeRaw === "client" ? "client" : "lead";
+
+    if (!relatedId) {
+      setCrmNotice("Create or select a lead or client before adding a task.");
+      return;
+    }
+
+    const assignedTo = String(form.get("assignedTo") || "Ruan");
+    const assignedProfile = profiles.find((profile) => profile.full_name === assignedTo);
+    const dueDate = String(form.get("dueDate") || format(new Date(), "yyyy-MM-dd"));
+    const relatedName =
+      relatedType === "client"
+        ? clients.find((client) => client.id === relatedId)?.clientName
+        : leads.find((lead) => lead.id === relatedId)?.companyName ||
+          leads.find((lead) => lead.id === relatedId)?.fullName;
+    const task: Task = {
+      id: `task-${Date.now()}`,
+      title: String(form.get("title") || "Follow up"),
+      description: String(form.get("description") || ""),
+      dueDate,
+      priority: String(form.get("priority") || "Medium") as Task["priority"],
+      status: "To Do",
+      assignedUser: assignedTo,
+      relatedType,
+      relatedId,
+      relatedName: relatedName || "Linked record",
+    };
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("tasks")
+        .insert({
+          title: task.title,
+          description: task.description || null,
+          due_date: task.dueDate,
+          priority: task.priority,
+          status: task.status,
+          assigned_user: assignedProfile?.id ?? null,
+          related_type: task.relatedType,
+          related_id: task.relatedId,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setCrmNotice(`Could not create task: ${error.message}`);
+        return;
+      }
+
+      const profileNames = new Map(profiles.map((profile) => [profile.id, profile.full_name]));
+      const relatedNames = new Map<string, string>([
+        ...leads.map((lead) => [`lead:${lead.id}`, lead.companyName || lead.fullName] as const),
+        ...clients.map((client) => [`client:${client.id}`, client.clientName] as const),
+      ]);
+      const savedTask = mapTaskRow(data as TaskRow, profileNames, relatedNames);
+      setTasks((current) =>
+        [savedTask, ...current].sort((left, right) => left.dueDate.localeCompare(right.dueDate)),
+      );
+      setCrmNotice("Task added.");
+      formElement.reset();
+      return;
+    }
+
+    setTasks((current) => [task, ...current].sort((left, right) => left.dueDate.localeCompare(right.dueDate)));
+    formElement.reset();
+  }
+
   const visibleClients = clients.filter((client) => {
     const matchesQuery = `${client.clientName} ${client.company} ${client.contactPerson} ${client.services.join(" ")}`.
       toLowerCase()
@@ -643,7 +828,17 @@ export default function Home() {
                 {crmNotice}
               </div>
             )}
-            {section === "dashboard" && <DashboardView dashboard={dashboard} tasks={tasks} leads={leads} />}
+            {section === "dashboard" && (
+              <DashboardView
+                dashboard={dashboard}
+                tasks={tasks}
+                leads={leads}
+                activities={activityLog}
+                addTask={addTask}
+                teamMembers={teamMembers}
+                relatedItems={relatedItems}
+              />
+            )}
             {section === "leads" && (
               <LeadsView
                 leads={filteredLeads}
@@ -676,7 +871,14 @@ export default function Home() {
                 setClientStatusFilter={setClientStatusFilter}
               />
             )}
-            {section === "tasks" && <TasksView tasks={tasks} />}
+            {section === "tasks" && (
+              <TasksView
+                tasks={tasks}
+                addTask={addTask}
+                teamMembers={teamMembers}
+                relatedItems={relatedItems}
+              />
+            )}
             {section === "settings" && <SettingsView teamMembers={teamMembers} />}
           </div>
         </section>
@@ -759,14 +961,86 @@ function SelectBlock({ name, label, values }: { name: string; label: string; val
   );
 }
 
+function AddTaskDialog({
+  addTask,
+  teamMembers,
+  relatedItems,
+}: {
+  addTask: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
+  relatedItems: RelatedItem[];
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger render={<Button size="sm" className="h-9 rounded-md bg-[#f70805] text-white hover:bg-[#d80f0c]" />}>
+        <Plus className="size-4" />
+        Task
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-xl">
+        <DialogHeader>
+          <DialogTitle>Add task</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={addTask} className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Field name="title" label="Task" placeholder="Follow up with lead" />
+          </div>
+          <Field name="dueDate" label="Due date" type="date" />
+          <SelectBlock name="priority" label="Priority" values={["Low", "Medium", "High"]} />
+          <SelectBlock name="assignedTo" label="Assigned team member" values={teamMembers.map((user) => user.name)} />
+          <div className="grid gap-2">
+            <Label htmlFor="related" className="text-sm">
+              Related record
+            </Label>
+            <select
+              id="related"
+              name="related"
+              className="h-10 rounded-md border border-zinc-200 bg-white px-3 text-sm"
+              disabled={relatedItems.length === 0}
+            >
+              {relatedItems.length ? (
+                relatedItems.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))
+              ) : (
+                <option value="">Create a lead or client first</option>
+              )}
+            </select>
+          </div>
+          <div className="md:col-span-2">
+            <Label className="text-sm">Notes</Label>
+            <Textarea name="description" className="mt-2 min-h-24 rounded-md" />
+          </div>
+          <Button
+            type="submit"
+            className="md:col-span-2 h-10 rounded-md bg-[#f70805] hover:bg-[#d80f0c]"
+            disabled={relatedItems.length === 0}
+          >
+            Add task
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function DashboardView({
   dashboard,
   tasks,
   leads,
+  activities,
+  addTask,
+  teamMembers,
+  relatedItems,
 }: {
   dashboard: Record<string, number>;
   tasks: Task[];
   leads: Lead[];
+  activities: CrmActivity[];
+  addTask: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
+  relatedItems: RelatedItem[];
 }) {
   const metrics: [string, string | number, LucideIcon][] = [
     ["Total leads", dashboard.totalLeads, UsersRound],
@@ -804,6 +1078,11 @@ function DashboardView({
             <CardTitle className="text-base">Recent lead activity</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
+            {activities.length === 0 && (
+              <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-500">
+                New leads and CRM updates will appear here once they start flowing in.
+              </div>
+            )}
             {activities.map((item) => (
               <div key={item.id} className="flex gap-3 border-b border-zinc-100 pb-4 last:border-0 last:pb-0">
                 <div className="mt-1 flex size-8 items-center justify-center rounded-md bg-zinc-100">
@@ -821,12 +1100,20 @@ function DashboardView({
 
         <Card className="rounded-md border-rose-200 bg-rose-50 shadow-none">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base text-rose-950">
-              <CalendarClock className="size-4" />
-              Needs attention today
-            </CardTitle>
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="flex items-center gap-2 text-base text-rose-950">
+                <CalendarClock className="size-4" />
+                Needs attention today
+              </CardTitle>
+              <AddTaskDialog addTask={addTask} teamMembers={teamMembers} relatedItems={relatedItems} />
+            </div>
           </CardHeader>
           <CardContent className="grid gap-3">
+            {dueToday.length === 0 && leads.filter((lead) => lead.temperature === "Hot").length === 0 && (
+              <div className="rounded-md border border-dashed border-rose-200 bg-white/70 p-4 text-sm text-rose-900">
+                Nothing urgent yet. Add a task here when something needs attention today.
+              </div>
+            )}
             {dueToday.map((task) => (
               <div key={task.id} className="rounded-md border border-rose-200 bg-white p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -1193,16 +1480,31 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
-function TasksView({ tasks }: { tasks: Task[] }) {
+function TasksView({
+  tasks,
+  addTask,
+  teamMembers,
+  relatedItems,
+}: {
+  tasks: Task[];
+  addTask: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
+  relatedItems: RelatedItem[];
+}) {
   const overdue = tasks.filter((task) => isBefore(parseISO(task.dueDate), today) && task.status !== "Done");
   const dueToday = tasks.filter((task) => isSameDay(parseISO(task.dueDate), today) && task.status !== "Done");
   const upcoming = tasks.filter((task) => isAfter(parseISO(task.dueDate), today) && isBefore(parseISO(task.dueDate), addDays(today, 10)));
 
   return (
-    <div className="grid gap-6 xl:grid-cols-3">
-      <TaskColumn title="Overdue" tone="rose" tasks={overdue} />
-      <TaskColumn title="Due today" tone="amber" tasks={dueToday} />
-      <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} />
+    <div className="grid gap-4">
+      <div className="flex justify-end">
+        <AddTaskDialog addTask={addTask} teamMembers={teamMembers} relatedItems={relatedItems} />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-3">
+        <TaskColumn title="Overdue" tone="rose" tasks={overdue} />
+        <TaskColumn title="Due today" tone="amber" tasks={dueToday} />
+        <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} />
+      </div>
     </div>
   );
 }
@@ -1215,6 +1517,11 @@ function TaskColumn({ title, tasks, tone }: { title: string; tasks: Task[]; tone
         <CardTitle className="text-base">{title}</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-3">
+        {tasks.length === 0 && (
+          <div className="rounded-md border border-dashed border-zinc-300 bg-white/70 p-6 text-sm text-zinc-500">
+            No tasks in this lane.
+          </div>
+        )}
         {tasks.map((task) => (
           <div key={task.id} className="rounded-md border border-zinc-200 bg-white p-4">
             <div className="flex items-start justify-between gap-3">
