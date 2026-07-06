@@ -736,6 +736,22 @@ export default function Home() {
     formElement.reset();
   }
 
+  async function completeTask(taskId: string) {
+    setTasks((current) =>
+      current.map((task) => (task.id === taskId ? { ...task, status: "Done" } : task)),
+    );
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { error } = await supabase.from("tasks").update({ status: "Done" }).eq("id", taskId);
+
+      if (error) {
+        setCrmNotice(`Could not mark task as done: ${error.message}`);
+      }
+    }
+  }
+
   const visibleClients = clients.filter((client) => {
     const matchesQuery = `${client.clientName} ${client.company} ${client.contactPerson} ${client.services.join(" ")}`.
       toLowerCase()
@@ -835,6 +851,7 @@ export default function Home() {
                 leads={leads}
                 activities={activityLog}
                 addTask={addTask}
+                completeTask={completeTask}
                 teamMembers={teamMembers}
                 relatedItems={relatedItems}
               />
@@ -875,6 +892,7 @@ export default function Home() {
               <TasksView
                 tasks={tasks}
                 addTask={addTask}
+                completeTask={completeTask}
                 teamMembers={teamMembers}
                 relatedItems={relatedItems}
               />
@@ -1031,6 +1049,7 @@ function DashboardView({
   leads,
   activities,
   addTask,
+  completeTask,
   teamMembers,
   relatedItems,
 }: {
@@ -1039,6 +1058,7 @@ function DashboardView({
   leads: Lead[];
   activities: CrmActivity[];
   addTask: (event: FormEvent<HTMLFormElement>) => void;
+  completeTask: (taskId: string) => void;
   teamMembers: UserProfile[];
   relatedItems: RelatedItem[];
 }) {
@@ -1118,7 +1138,19 @@ function DashboardView({
               <div key={task.id} className="rounded-md border border-rose-200 bg-white p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium">{task.title}</p>
-                  <Badge className="rounded-md bg-rose-700">{task.priority}</Badge>
+                  <div className="flex items-center gap-2">
+                    <Badge className="rounded-md bg-rose-700">{task.priority}</Badge>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-md border-emerald-200 bg-emerald-50 px-2 text-emerald-800 hover:bg-emerald-100"
+                      onClick={() => completeTask(task.id)}
+                    >
+                      <CheckCircle2 className="size-3.5" />
+                      Done
+                    </Button>
+                  </div>
                 </div>
                 <p className="mt-2 text-xs text-zinc-500">{task.relatedName} assigned to {task.assignedUser}</p>
               </div>
@@ -1483,11 +1515,13 @@ function Info({ label, value }: { label: string; value: string }) {
 function TasksView({
   tasks,
   addTask,
+  completeTask,
   teamMembers,
   relatedItems,
 }: {
   tasks: Task[];
   addTask: (event: FormEvent<HTMLFormElement>) => void;
+  completeTask: (taskId: string) => void;
   teamMembers: UserProfile[];
   relatedItems: RelatedItem[];
 }) {
@@ -1501,15 +1535,25 @@ function TasksView({
         <AddTaskDialog addTask={addTask} teamMembers={teamMembers} relatedItems={relatedItems} />
       </div>
       <div className="grid gap-6 xl:grid-cols-3">
-        <TaskColumn title="Overdue" tone="rose" tasks={overdue} />
-        <TaskColumn title="Due today" tone="amber" tasks={dueToday} />
-        <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} />
+        <TaskColumn title="Overdue" tone="rose" tasks={overdue} completeTask={completeTask} />
+        <TaskColumn title="Due today" tone="amber" tasks={dueToday} completeTask={completeTask} />
+        <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} completeTask={completeTask} />
       </div>
     </div>
   );
 }
 
-function TaskColumn({ title, tasks, tone }: { title: string; tasks: Task[]; tone: "rose" | "amber" | "zinc" }) {
+function TaskColumn({
+  title,
+  tasks,
+  tone,
+  completeTask,
+}: {
+  title: string;
+  tasks: Task[];
+  tone: "rose" | "amber" | "zinc";
+  completeTask: (taskId: string) => void;
+}) {
   const color = tone === "rose" ? "border-rose-200 bg-rose-50" : tone === "amber" ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white";
   return (
     <Card className={`rounded-md shadow-none ${color}`}>
@@ -1526,7 +1570,19 @@ function TaskColumn({ title, tasks, tone }: { title: string; tasks: Task[]; tone
           <div key={task.id} className="rounded-md border border-zinc-200 bg-white p-4">
             <div className="flex items-start justify-between gap-3">
               <p className="text-sm font-medium">{task.title}</p>
-              <Badge variant="outline" className="rounded-md">{task.priority}</Badge>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant="outline" className="rounded-md">{task.priority}</Badge>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 rounded-md px-2 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+                  onClick={() => completeTask(task.id)}
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  Done
+                </Button>
+              </div>
             </div>
             <p className="mt-2 text-sm text-zinc-600">{task.description}</p>
             <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
