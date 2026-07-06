@@ -8,7 +8,9 @@
 https://your-domain.com/api/webhooks/formspree
 ```
 
-4. Add a request header:
+4. Set authentication to `Bearer token` and paste the same value as `FORMSPREE_WEBHOOK_SECRET`.
+
+The CRM also accepts this custom header if your webhook tool supports headers:
 
 ```text
 x-webhook-secret: the same value as FORMSPREE_WEBHOOK_SECRET

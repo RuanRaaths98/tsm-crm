@@ -5,8 +5,11 @@ import { getSupabaseServiceClient } from "@/lib/supabase-server";
 export async function POST(request: Request) {
   const secret = process.env.FORMSPREE_WEBHOOK_SECRET;
   const incomingSecret = request.headers.get("x-webhook-secret");
+  const bearerToken = request.headers
+    .get("authorization")
+    ?.replace(/^Bearer\s+/i, "");
 
-  if (secret && incomingSecret !== secret) {
+  if (secret && incomingSecret !== secret && bearerToken !== secret) {
     return NextResponse.json({ error: "Unauthorized webhook request." }, { status: 401 });
   }
 
