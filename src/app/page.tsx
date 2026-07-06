@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   Activity,
@@ -47,7 +47,9 @@ import {
   type LeadStatus,
   type LeadTemperature,
   type Task,
+  type UserProfile,
 } from "@/lib/crm-data";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const today = parseISO("2026-06-30");
 
@@ -82,6 +84,64 @@ const temperatureStyles: Record<LeadTemperature, string> = {
   Warm: "border-amber-200 bg-amber-50 text-amber-800",
   Hot: "border-rose-200 bg-rose-50 text-rose-700",
 };
+
+type ProfileRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  role: "Admin" | "Team Member";
+};
+
+type LeadRow = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  company_name: string | null;
+  source: string | null;
+  service_interested: string | null;
+  budget: number | string | null;
+  message: string | null;
+  status: LeadStatus;
+  temperature: LeadTemperature;
+  assigned_to: string | null;
+  next_follow_up_date: string | null;
+  internal_notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function mapLeadRow(row: LeadRow, profileNames: Map<string, string>): Lead {
+  const now = new Date().toISOString();
+
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    email: row.email ?? "",
+    phone: row.phone ?? "",
+    companyName: row.company_name ?? "",
+    source: row.source ?? "Manual",
+    serviceInterested: row.service_interested ?? "",
+    budget: Number(row.budget ?? 0),
+    message: row.message ?? "",
+    status: row.status,
+    temperature: row.temperature,
+    assignedTo: row.assigned_to ? profileNames.get(row.assigned_to) ?? "Assigned" : "Unassigned",
+    nextFollowUpDate: row.next_follow_up_date ?? format(new Date(), "yyyy-MM-dd"),
+    internalNotes: row.internal_notes ?? "",
+    createdAt: row.created_at ?? now,
+    updatedAt: row.updated_at ?? now,
+  };
+}
 
 function SelectField({
   value,
@@ -127,12 +187,63 @@ export default function Home() {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [clients, setClients] = useState<Client[]>(initialClients);
   const [tasks] = useState<Task[]>(initialTasks);
+  const [profiles, setProfiles] = useState<ProfileRow[]>([]);
+  const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
+  const [crmNotice, setCrmNotice] = useState("");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [temperatureFilter, setTemperatureFilter] = useState("All");
   const [assigneeFilter, setAssigneeFilter] = useState("All");
   const [clientStatusFilter, setClientStatusFilter] = useState("All");
+
+  useEffect(() => {
+    async function loadLiveLeads() {
+      const supabase = getSupabaseBrowserClient();
+
+      if (!supabase) {
+        return;
+      }
+
+      const { data: profileRows } = await supabase
+        .from("profiles")
+        .select("id, full_name, email, role")
+        .order("full_name");
+      const typedProfiles = (profileRows ?? []) as ProfileRow[];
+      const fallbackProfiles = users.filter(
+        (user) => !typedProfiles.some((profile) => profile.full_name === user.name),
+      );
+      const liveMembers = [
+        ...typedProfiles.map((profile) => ({
+          id: profile.id,
+          name: profile.full_name,
+          email: profile.email,
+          role: profile.role,
+          avatar: initials(profile.full_name),
+        })),
+        ...fallbackProfiles,
+      ];
+      const profileNames = new Map(typedProfiles.map((profile) => [profile.id, profile.full_name]));
+
+      setProfiles(typedProfiles);
+      setTeamMembers(liveMembers.length ? liveMembers : users);
+
+      const { data: leadRows, error } = await supabase
+        .from("leads")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        setCrmNotice(`Could not load Supabase leads: ${error.message}`);
+        return;
+      }
+
+      setLeads(((leadRows ?? []) as LeadRow[]).map((lead) => mapLeadRow(lead, profileNames)));
+      setCrmNotice("");
+    }
+
+    loadLiveLeads();
+  }, []);
 
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -168,9 +279,12 @@ export default function Home() {
     };
   }, [clients, leads, tasks]);
 
-  function addLead(event: FormEvent<HTMLFormElement>) {
+  async function addLead(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const assignedTo = String(form.get("assignedTo") || "Ruan");
+    const assignedProfile = profiles.find((profile) => profile.full_name === assignedTo);
     const newLead: Lead = {
       id: `lead-${Date.now()}`,
       fullName: String(form.get("fullName") || "New lead"),
@@ -183,26 +297,85 @@ export default function Home() {
       message: String(form.get("message") || ""),
       status: "New",
       temperature: String(form.get("temperature") || "Warm") as LeadTemperature,
-      assignedTo: String(form.get("assignedTo") || "Ruan"),
+      assignedTo,
       nextFollowUpDate: String(form.get("nextFollowUpDate") || format(today, "yyyy-MM-dd")),
       internalNotes: String(form.get("internalNotes") || ""),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          full_name: newLead.fullName,
+          email: newLead.email || null,
+          phone: newLead.phone || null,
+          company_name: newLead.companyName,
+          source: newLead.source,
+          service_interested: newLead.serviceInterested,
+          budget: newLead.budget,
+          message: newLead.message,
+          status: newLead.status,
+          temperature: newLead.temperature,
+          assigned_to: assignedProfile?.id ?? null,
+          next_follow_up_date: newLead.nextFollowUpDate,
+          internal_notes: newLead.internalNotes,
+        })
+        .select("*")
+        .single();
+
+      if (error) {
+        setCrmNotice(`Could not save lead to Supabase: ${error.message}`);
+        return;
+      }
+
+      const profileNames = new Map(profiles.map((profile) => [profile.id, profile.full_name]));
+      setLeads((current) => [mapLeadRow(data as LeadRow, profileNames), ...current]);
+      setCrmNotice("Lead saved.");
+      formElement.reset();
+      return;
+    }
+
     setLeads((current) => [newLead, ...current]);
-    event.currentTarget.reset();
+    formElement.reset();
   }
 
-  function updateLeadStatus(leadId: string, status: LeadStatus) {
+  async function updateLeadStatus(leadId: string, status: LeadStatus) {
     setLeads((current) =>
       current.map((lead) =>
         lead.id === leadId ? { ...lead, status, updatedAt: new Date().toISOString() } : lead,
       ),
     );
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { error } = await supabase
+        .from("leads")
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq("id", leadId);
+
+      if (error) {
+        setCrmNotice(`Could not update lead status: ${error.message}`);
+      }
+    }
   }
 
-  function deleteLead(leadId: string) {
+  async function deleteLead(leadId: string) {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { error } = await supabase.from("leads").delete().eq("id", leadId);
+
+      if (error) {
+        setCrmNotice(`Could not delete lead: ${error.message}`);
+      }
+    }
   }
 
   function convertLead(lead: Lead) {
@@ -308,16 +481,22 @@ export default function Home() {
                     className="h-10 w-full rounded-md border-zinc-200 bg-white pl-9 sm:w-72"
                   />
                 </div>
-                <QuickLeadDialog addLead={addLead} />
+                <QuickLeadDialog addLead={addLead} teamMembers={teamMembers} />
               </div>
             </div>
           </header>
 
           <div className="mx-auto grid max-w-[1440px] gap-6 px-4 py-6 md:px-8">
+            {crmNotice && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {crmNotice}
+              </div>
+            )}
             {section === "dashboard" && <DashboardView dashboard={dashboard} tasks={tasks} leads={leads} />}
             {section === "leads" && (
               <LeadsView
                 leads={filteredLeads}
+                teamMembers={teamMembers}
                 statusFilter={statusFilter}
                 sourceFilter={sourceFilter}
                 temperatureFilter={temperatureFilter}
@@ -342,7 +521,7 @@ export default function Home() {
               />
             )}
             {section === "tasks" && <TasksView tasks={tasks} />}
-            {section === "settings" && <SettingsView />}
+            {section === "settings" && <SettingsView teamMembers={teamMembers} />}
           </div>
         </section>
       </div>
@@ -350,7 +529,13 @@ export default function Home() {
   );
 }
 
-function QuickLeadDialog({ addLead }: { addLead: (event: FormEvent<HTMLFormElement>) => void }) {
+function QuickLeadDialog({
+  addLead,
+  teamMembers,
+}: {
+  addLead: (event: FormEvent<HTMLFormElement>) => void;
+  teamMembers: UserProfile[];
+}) {
   return (
     <Dialog>
       <DialogTrigger render={<Button className="h-10 rounded-md bg-[#f70805] text-white hover:bg-[#d80f0c]" />}>
@@ -370,7 +555,7 @@ function QuickLeadDialog({ addLead }: { addLead: (event: FormEvent<HTMLFormEleme
           <SelectBlock name="serviceInterested" label="Service interested in" values={services} />
           <Field name="budget" label="Budget" placeholder="25000" type="number" />
           <SelectBlock name="temperature" label="Temperature" values={["Cold", "Warm", "Hot"]} />
-          <SelectBlock name="assignedTo" label="Assigned team member" values={users.map((user) => user.name)} />
+          <SelectBlock name="assignedTo" label="Assigned team member" values={teamMembers.map((user) => user.name)} />
           <Field name="nextFollowUpDate" label="Next follow-up" type="date" />
           <div className="md:col-span-2">
             <Label className="text-sm">Message / notes</Label>
@@ -510,6 +695,7 @@ function DashboardView({
 
 function LeadsView(props: {
   leads: Lead[];
+  teamMembers: UserProfile[];
   statusFilter: string;
   sourceFilter: string;
   temperatureFilter: string;
@@ -540,7 +726,7 @@ function LeadsView(props: {
             {["All", "Cold", "Warm", "Hot"].map((value) => <option key={value}>{value}</option>)}
           </SelectField>
           <SelectField value={props.assigneeFilter} onChange={props.setAssigneeFilter}>
-            {["All", ...users.map((user) => user.name)].map((value) => <option key={value}>{value}</option>)}
+            {["All", ...props.teamMembers.map((user) => user.name)].map((value) => <option key={value}>{value}</option>)}
           </SelectField>
         </div>
       </CardHeader>
@@ -764,7 +950,7 @@ function TaskColumn({ title, tasks, tone }: { title: string; tasks: Task[]; tone
   );
 }
 
-function SettingsView() {
+function SettingsView({ teamMembers }: { teamMembers: UserProfile[] }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
       <Card className="rounded-md border-zinc-200 bg-white shadow-none">
@@ -772,7 +958,7 @@ function SettingsView() {
           <CardTitle className="text-base">Team users</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          {users.map((user) => (
+          {teamMembers.map((user) => (
             <div key={user.id} className="flex items-center justify-between rounded-md border border-zinc-200 p-3">
               <div className="flex items-center gap-3">
                 <div className="flex size-9 items-center justify-center rounded-md bg-zinc-100 text-xs font-semibold">{user.avatar}</div>
