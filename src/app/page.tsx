@@ -123,6 +123,7 @@ type ClientChecklistState = Record<string, string[]>;
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
 const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
+const newResearchDocUrl = "https://docs.new";
 
 type SlaDocument = {
   name: string;
@@ -1879,18 +1880,30 @@ function OnboardingChecklistRow({
         </span>
       </label>
       {hasResearchLink && (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 self-start rounded-md bg-white sm:self-auto"
-          render={
-            <a href={researchAvatarsDocUrl} target="_blank" rel="noreferrer" />
-          }
-        >
-          Go research
-          <ExternalLink className="size-3.5" />
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md bg-white"
+            render={
+              <a href={researchAvatarsDocUrl} target="_blank" rel="noreferrer" />
+            }
+          >
+            Go research
+            <ExternalLink className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 rounded-md bg-white"
+            render={<a href={newResearchDocUrl} target="_blank" rel="noreferrer" />}
+          >
+            Combine The Research Here
+            <ExternalLink className="size-3.5" />
+          </Button>
+        </div>
       )}
     </div>
   );
