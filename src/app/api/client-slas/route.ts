@@ -3,6 +3,8 @@ import { createServerClient } from "@supabase/ssr";
 import { getSupabaseServiceClient } from "@/lib/supabase-server";
 
 const clientSlaBucket = "client-slas";
+const storagePolicyHelp =
+  "Supabase Storage rejected the upload. Confirm SUPABASE_SERVICE_ROLE_KEY is the real service_role key in Railway, then run the client-slas storage policy SQL from supabase/schema.sql.";
 
 type SlaDocument = {
   name: string;
@@ -16,6 +18,10 @@ function sanitizeStorageFileName(fileName: string) {
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function isRowLevelSecurityError(error: { message?: string } | null) {
+  return error?.message?.toLowerCase().includes("row-level security") ?? false;
 }
 
 async function getAuthenticatedUser(request: NextRequest) {
@@ -175,6 +181,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (error) {
+      if (isRowLevelSecurityError(error)) {
+        return NextResponse.json({ error: storagePolicyHelp }, { status: 500 });
+      }
+
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
