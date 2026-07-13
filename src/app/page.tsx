@@ -2026,10 +2026,14 @@ function TestingTrackerView({
   tracker: Record<string, string>;
   onChange: (field: string, value: string) => void;
 }) {
+  const metaHookType = tracker.metaHookType ?? "";
+  const emailHookType = tracker.emailHookType ?? "";
+  const metaField = (field: string) => scopedTestingField("meta", metaHookType, field);
+  const emailField = (field: string) => scopedTestingField("email", emailHookType, field);
   const resultItems = [
-    ["META", tracker.metaResult],
+    ["META", tracker[metaField("result")]],
     ["GOOGLE", tracker.googleResult],
-    ["EMAIL", tracker.emailResult],
+    ["EMAIL", tracker[emailField("result")]],
   ];
 
   return (
@@ -2065,22 +2069,23 @@ function TestingTrackerView({
         <TestingSubheading title="What We Tested" />
         <div className="grid gap-3 md:grid-cols-2">
           <TestingSelect label="Hook Type" field="metaHookType" options={hookTypeOptions} tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Hook" field="metaHook" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Copy Angle" field="metaCopyAngle" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Creative" field="metaCreative" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Offer" field="metaOffer" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Hook" field={metaField("hook")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Copy Angle" field={metaField("copyAngle")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Creative" field={metaField("creative")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Offer" field={metaField("offer")} tracker={tracker} onChange={onChange} />
         </div>
+        <ScopedTestingHint activeValue={metaHookType} label="hook type" />
         <TestingSubheading title="Is It Working?" />
         <div className="grid gap-3 md:grid-cols-2">
-          <TestingSelect label="Result" field="metaResult" options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
-          <TestingTextarea label="Why?" field="metaWhy" tracker={tracker} onChange={onChange} />
-          <TestingSelect label="What stood out?" field="metaStoodOut" options={["Hook", "Copy", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
+          <TestingSelect label="Result" field={metaField("result")} options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
+          <TestingTextarea label="Why?" field={metaField("why")} tracker={tracker} onChange={onChange} />
+          <TestingSelect label="What stood out?" field={metaField("stoodOut")} options={["Hook", "Copy", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
         </div>
         <TestingSubheading title="Decision" />
         <div className="grid gap-3 md:grid-cols-3">
-          <TestingTextarea label="Double down on" field="metaDoubleDown" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Stop or change" field="metaStopChange" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Next move" field="metaNextMove" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Double down on" field={metaField("doubleDown")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Stop or change" field={metaField("stopChange")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Next move" field={metaField("nextMove")} tracker={tracker} onChange={onChange} />
         </div>
       </TestingSection>
 
@@ -2110,22 +2115,23 @@ function TestingTrackerView({
         <TestingSubheading title="What We Tested" />
         <div className="grid gap-3 md:grid-cols-2">
           <TestingSelect label="Subject-Line Hook Type" field="emailHookType" options={hookTypeOptions} tracker={tracker} onChange={onChange} />
-          <TestingInput label="Subject Line" field="emailSubjectLine" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Primary Message" field="emailPrimaryMessage" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Creative" field="emailCreative" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Offer" field="emailOffer" tracker={tracker} onChange={onChange} />
+          <TestingInput label="Subject Line" field={emailField("subjectLine")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Primary Message" field={emailField("primaryMessage")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Creative" field={emailField("creative")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Offer" field={emailField("offer")} tracker={tracker} onChange={onChange} />
         </div>
+        <ScopedTestingHint activeValue={emailHookType} label="subject-line hook type" />
         <TestingSubheading title="Is It Working?" />
         <div className="grid gap-3 md:grid-cols-2">
-          <TestingSelect label="Result" field="emailResult" options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
-          <TestingTextarea label="Why?" field="emailWhy" tracker={tracker} onChange={onChange} />
-          <TestingSelect label="What stood out?" field="emailStoodOut" options={["Subject", "Message", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
+          <TestingSelect label="Result" field={emailField("result")} options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
+          <TestingTextarea label="Why?" field={emailField("why")} tracker={tracker} onChange={onChange} />
+          <TestingSelect label="What stood out?" field={emailField("stoodOut")} options={["Subject", "Message", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
         </div>
         <TestingSubheading title="Decision" />
         <div className="grid gap-3 md:grid-cols-3">
-          <TestingTextarea label="Double down on" field="emailDoubleDown" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Stop or change" field="emailStopChange" tracker={tracker} onChange={onChange} />
-          <TestingTextarea label="Next move" field="emailNextMove" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Double down on" field={emailField("doubleDown")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Stop or change" field={emailField("stopChange")} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Next move" field={emailField("nextMove")} tracker={tracker} onChange={onChange} />
         </div>
       </TestingSection>
 
@@ -2191,6 +2197,20 @@ function TestingSection({
 
 function TestingSubheading({ title }: { title: string }) {
   return <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">{title}</p>;
+}
+
+function ScopedTestingHint({ activeValue, label }: { activeValue: string; label: string }) {
+  return (
+    <div className="rounded-md border border-sky-200 bg-white/80 px-3 py-2 text-xs text-sky-900">
+      {activeValue
+        ? `These fields are saved separately for ${activeValue}. Switch ${label}s to track another version.`
+        : `Choose a ${label} to save these fields separately for each version.`}
+    </div>
+  );
+}
+
+function scopedTestingField(group: string, activeValue: string, field: string) {
+  return activeValue ? `${group}:${activeValue}:${field}` : `${group}:unselected:${field}`;
 }
 
 function TestingInput({
