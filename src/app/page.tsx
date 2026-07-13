@@ -19,6 +19,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  X,
   UsersRound,
   type LucideIcon,
 } from "lucide-react";
@@ -619,12 +620,22 @@ export default function Home() {
 
   async function deleteLead(leadId: string) {
     setLeads((current) => current.filter((lead) => lead.id !== leadId));
+    setTasks((current) =>
+      current.filter((task) => !(task.relatedType === "lead" && task.relatedId === leadId)),
+    );
 
     const supabase = getSupabaseBrowserClient();
 
     if (supabase) {
-      const { error } = await supabase.from("leads").delete().eq("id", leadId);
+      const [{ error: taskError }, { error }] = await Promise.all([
+        supabase.from("tasks").delete().eq("related_type", "lead").eq("related_id", leadId),
+        supabase.from("leads").delete().eq("id", leadId),
+      ]);
 
+      if (taskError) {
+        setCrmNotice(`Could not remove lead tasks: ${taskError.message}`);
+        return;
+      }
       if (error) {
         setCrmNotice(`Could not delete lead: ${error.message}`);
       }
@@ -752,6 +763,34 @@ export default function Home() {
     formElement.reset();
   }
 
+  async function deleteClient(clientId: string) {
+    const fallbackClientId = clients.find((client) => client.id !== clientId)?.id ?? "";
+
+    setClients((current) => current.filter((client) => client.id !== clientId));
+    setTasks((current) =>
+      current.filter((task) => !(task.relatedType === "client" && task.relatedId === clientId)),
+    );
+    setSelectedClientId((current) => (current === clientId ? fallbackClientId : current));
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const [{ error: taskError }, { error }] = await Promise.all([
+        supabase.from("tasks").delete().eq("related_type", "client").eq("related_id", clientId),
+        supabase.from("clients").delete().eq("id", clientId),
+      ]);
+
+      if (taskError) {
+        setCrmNotice(`Could not remove client tasks: ${taskError.message}`);
+        return;
+      }
+
+      if (error) {
+        setCrmNotice(`Could not delete client: ${error.message}`);
+      }
+    }
+  }
+
   async function addTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -839,6 +878,20 @@ export default function Home() {
 
       if (error) {
         setCrmNotice(`Could not mark task as done: ${error.message}`);
+      }
+    }
+  }
+
+  async function deleteTask(taskId: string) {
+    setTasks((current) => current.filter((task) => task.id !== taskId));
+
+    const supabase = getSupabaseBrowserClient();
+
+    if (supabase) {
+      const { error } = await supabase.from("tasks").delete().eq("id", taskId);
+
+      if (error) {
+        setCrmNotice(`Could not delete task: ${error.message}`);
       }
     }
   }
@@ -943,6 +996,7 @@ export default function Home() {
                 activities={activityLog}
                 addTask={addTask}
                 completeTask={completeTask}
+                deleteTask={deleteTask}
                 teamMembers={teamMembers}
                 relatedItems={relatedItems}
               />
@@ -974,6 +1028,7 @@ export default function Home() {
                 selectedClientId={selectedClientId}
                 setSelectedClientId={setSelectedClientId}
                 addClient={addClient}
+                deleteClient={deleteClient}
                 teamMembers={teamMembers}
                 clientStatusFilter={clientStatusFilter}
                 setClientStatusFilter={setClientStatusFilter}
@@ -984,6 +1039,7 @@ export default function Home() {
                 tasks={tasks}
                 addTask={addTask}
                 completeTask={completeTask}
+                deleteTask={deleteTask}
                 teamMembers={teamMembers}
                 relatedItems={relatedItems}
               />
@@ -1141,6 +1197,7 @@ function DashboardView({
   activities,
   addTask,
   completeTask,
+  deleteTask,
   teamMembers,
   relatedItems,
 }: {
@@ -1150,6 +1207,7 @@ function DashboardView({
   activities: CrmActivity[];
   addTask: (event: FormEvent<HTMLFormElement>) => void;
   completeTask: (taskId: string) => void;
+  deleteTask: (taskId: string) => void;
   teamMembers: UserProfile[];
   relatedItems: RelatedItem[];
 }) {
@@ -1226,25 +1284,13 @@ function DashboardView({
               </div>
             )}
             {dueToday.map((task) => (
-              <div key={task.id} className="rounded-md border border-rose-200 bg-white p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium">{task.title}</p>
-                  <div className="flex items-center gap-2">
-                    <Badge className="rounded-md bg-rose-700">{task.priority}</Badge>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8 rounded-md border-emerald-200 bg-emerald-50 px-2 text-emerald-800 hover:bg-emerald-100"
-                      onClick={() => completeTask(task.id)}
-                    >
-                      <CheckCircle2 className="size-3.5" />
-                      Done
-                    </Button>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-zinc-500">{task.relatedName} assigned to {task.assignedUser}</p>
-              </div>
+              <TaskCard
+                key={task.id}
+                task={task}
+                completeTask={completeTask}
+                deleteTask={deleteTask}
+                showCompleteAction
+              />
             ))}
             {leads.filter((lead) => lead.temperature === "Hot").slice(0, 3).map((lead) => (
               <div key={lead.id} className="rounded-md border border-amber-200 bg-white p-3">
@@ -1337,9 +1383,10 @@ function LeadsView(props: {
                     <Button variant="outline" size="sm" className="rounded-md" onClick={() => props.convertLead(lead)}>
                       Convert
                     </Button>
-                    <Button variant="ghost" size="sm" className="rounded-md text-rose-700" onClick={() => props.deleteLead(lead.id)}>
-                      Delete
-                    </Button>
+                    <DeleteIconButton
+                      ariaLabel={`Delete lead ${lead.fullName}`}
+                      onClick={() => props.deleteLead(lead.id)}
+                    />
                   </div>
                 </TableCell>
               </TableRow>
@@ -1423,6 +1470,7 @@ function ClientsView({
   selectedClientId,
   setSelectedClientId,
   addClient,
+  deleteClient,
   teamMembers,
   clientStatusFilter,
   setClientStatusFilter,
@@ -1432,6 +1480,7 @@ function ClientsView({
   selectedClientId: string;
   setSelectedClientId: (value: string) => void;
   addClient: (event: FormEvent<HTMLFormElement>) => void;
+  deleteClient: (clientId: string) => void;
   teamMembers: UserProfile[];
   clientStatusFilter: string;
   setClientStatusFilter: (value: string) => void;
@@ -1464,29 +1513,35 @@ function ClientsView({
             const isSelected = client.id === selectedClientId || client.id === selectedClient?.id;
 
             return (
-              <button
-                key={client.id}
-                onClick={() => setSelectedClientId(client.id)}
-                className={`grid gap-3 rounded-md border p-4 text-left transition active:translate-y-px ${
-                  isSelected
-                    ? "border-[#f70805] bg-red-50/60"
-                    : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{client.clientName}</p>
-                    <p className="mt-1 truncate text-xs text-zinc-500">
-                      {client.contactPerson || "No contact"} · {client.company || "No company"}
-                    </p>
+              <div key={client.id} className="flex gap-2">
+                <button
+                  onClick={() => setSelectedClientId(client.id)}
+                  className={`grid flex-1 gap-3 rounded-md border p-4 text-left transition active:translate-y-px ${
+                    isSelected
+                      ? "border-[#f70805] bg-red-50/60"
+                      : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold">{client.clientName}</p>
+                      <p className="mt-1 truncate text-xs text-zinc-500">
+                        {client.contactPerson || "No contact"} · {client.company || "No company"}
+                      </p>
+                    </div>
+                    <StatusBadge value={client.status} />
                   </div>
-                  <StatusBadge value={client.status} />
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-xs text-zinc-500">
-                  <span>{client.assignedTo}</span>
-                  <span className="text-right font-mono">{currency(client.monthlyRetainerValue)}</span>
-                </div>
-              </button>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-zinc-500">
+                    <span>{client.assignedTo}</span>
+                    <span className="text-right font-mono">{currency(client.monthlyRetainerValue)}</span>
+                  </div>
+                </button>
+                <DeleteIconButton
+                  ariaLabel={`Delete client ${client.clientName}`}
+                  onClick={() => deleteClient(client.id)}
+                  className="self-start"
+                />
+              </div>
             );
           })}
         </CardContent>
@@ -1503,7 +1558,15 @@ function ClientsView({
                   : "Choose a client from the list to view details."}
               </p>
             </div>
-            {selectedClient && <StatusBadge value={selectedClient.status} />}
+            <div className="flex items-start gap-2">
+              {selectedClient && <StatusBadge value={selectedClient.status} />}
+              {selectedClient && (
+                <DeleteIconButton
+                  ariaLabel={`Delete client ${selectedClient.clientName}`}
+                  onClick={() => deleteClient(selectedClient.id)}
+                />
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1566,6 +1629,30 @@ function ClientsView({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function DeleteIconButton({
+  ariaLabel,
+  onClick,
+  className = "",
+}: {
+  ariaLabel: string;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      aria-label={ariaLabel}
+      title={ariaLabel}
+      className={`rounded-md text-rose-700 hover:bg-rose-50 hover:text-rose-900 ${className}`}
+      onClick={onClick}
+    >
+      <X className="size-4" />
+    </Button>
   );
 }
 
@@ -1673,16 +1760,61 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function TaskCard({
+  task,
+  completeTask,
+  deleteTask,
+  showCompleteAction = false,
+}: {
+  task: Task;
+  completeTask: (taskId: string) => void;
+  deleteTask: (taskId: string) => void;
+  showCompleteAction?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-zinc-200 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium">{task.title}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          <Badge variant="outline" className="rounded-md">
+            {task.priority}
+          </Badge>
+          {showCompleteAction && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-8 rounded-md px-2 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+              onClick={() => completeTask(task.id)}
+            >
+              <CheckCircle2 className="size-3.5" />
+              Done
+            </Button>
+          )}
+          <DeleteIconButton ariaLabel={`Delete task ${task.title}`} onClick={() => deleteTask(task.id)} />
+        </div>
+      </div>
+      <p className="mt-2 text-sm text-zinc-600">{task.description}</p>
+      <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
+        <span>{task.relatedName}</span>
+        <StatusBadge value={task.status} />
+      </div>
+    </div>
+  );
+}
+
 function TasksView({
   tasks,
   addTask,
   completeTask,
+  deleteTask,
   teamMembers,
   relatedItems,
 }: {
   tasks: Task[];
   addTask: (event: FormEvent<HTMLFormElement>) => void;
   completeTask: (taskId: string) => void;
+  deleteTask: (taskId: string) => void;
   teamMembers: UserProfile[];
   relatedItems: RelatedItem[];
 }) {
@@ -1696,9 +1828,9 @@ function TasksView({
         <AddTaskDialog addTask={addTask} teamMembers={teamMembers} relatedItems={relatedItems} />
       </div>
       <div className="grid gap-6 xl:grid-cols-3">
-        <TaskColumn title="Overdue" tone="rose" tasks={overdue} completeTask={completeTask} />
-        <TaskColumn title="Due today" tone="amber" tasks={dueToday} completeTask={completeTask} />
-        <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} completeTask={completeTask} />
+        <TaskColumn title="Overdue" tone="rose" tasks={overdue} completeTask={completeTask} deleteTask={deleteTask} />
+        <TaskColumn title="Due today" tone="amber" tasks={dueToday} completeTask={completeTask} deleteTask={deleteTask} />
+        <TaskColumn title="Upcoming" tone="zinc" tasks={upcoming} completeTask={completeTask} deleteTask={deleteTask} />
       </div>
     </div>
   );
@@ -1709,11 +1841,13 @@ function TaskColumn({
   tasks,
   tone,
   completeTask,
+  deleteTask,
 }: {
   title: string;
   tasks: Task[];
   tone: "rose" | "amber" | "zinc";
   completeTask: (taskId: string) => void;
+  deleteTask: (taskId: string) => void;
 }) {
   const color = tone === "rose" ? "border-rose-200 bg-rose-50" : tone === "amber" ? "border-amber-200 bg-amber-50" : "border-zinc-200 bg-white";
   return (
@@ -1728,29 +1862,13 @@ function TaskColumn({
           </div>
         )}
         {tasks.map((task) => (
-          <div key={task.id} className="rounded-md border border-zinc-200 bg-white p-4">
-            <div className="flex items-start justify-between gap-3">
-              <p className="text-sm font-medium">{task.title}</p>
-              <div className="flex shrink-0 items-center gap-2">
-                <Badge variant="outline" className="rounded-md">{task.priority}</Badge>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 rounded-md px-2 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-                  onClick={() => completeTask(task.id)}
-                >
-                  <CheckCircle2 className="size-3.5" />
-                  Done
-                </Button>
-              </div>
-            </div>
-            <p className="mt-2 text-sm text-zinc-600">{task.description}</p>
-            <div className="mt-4 flex items-center justify-between text-xs text-zinc-500">
-              <span>{task.relatedName}</span>
-              <StatusBadge value={task.status} />
-            </div>
-          </div>
+          <TaskCard
+            key={task.id}
+            task={task}
+            completeTask={completeTask}
+            deleteTask={deleteTask}
+            showCompleteAction
+          />
         ))}
       </CardContent>
     </Card>
