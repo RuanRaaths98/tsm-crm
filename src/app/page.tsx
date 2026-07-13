@@ -105,8 +105,8 @@ type OnboardingChecklistItem = {
 };
 
 type ChecklistDocumentAction = {
-  templateLabel: string;
-  templateUrl: string;
+  templateLabel?: string;
+  templateUrl?: string;
   workingLabel: string;
 };
 
@@ -122,6 +122,11 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
   { id: "content-shoot", title: "Content shoot" },
   { id: "ads-run", title: "Ads run" },
   { id: "seo-geo", title: "SEO/GEO if applicable" },
+];
+
+const seoGeoChecklist: OnboardingChecklistItem[] = [
+  { id: "seo-geo-uber-suggest", title: "Uber Suggest" },
+  { id: "seo-geo-answer-the-public", title: "Answer the Public" },
 ];
 
 type ClientChecklistState = Record<string, string[]>;
@@ -151,6 +156,12 @@ const checklistDocumentActions: Partial<Record<string, ChecklistDocumentAction>>
     templateLabel: "Hooks Doc",
     templateUrl: hooksDocUrl,
     workingLabel: "Insert Your Hooks Here",
+  },
+  "seo-geo-uber-suggest": {
+    workingLabel: "Research on keywords and content doc",
+  },
+  "seo-geo-answer-the-public": {
+    workingLabel: "Research on keywords and content doc",
   },
 };
 
@@ -1728,6 +1739,10 @@ function ClientsView({
   setClientStatusFilter: (value: string) => void;
 }) {
   const selectedChecklistItemIds = selectedClient ? clientChecklistState[selectedClient.id] ?? [] : [];
+  const checklistItemIds = [...onboardingChecklist, ...seoGeoChecklist].map((item) => item.id);
+  const completedChecklistItemCount = selectedChecklistItemIds.filter((itemId) =>
+    checklistItemIds.includes(itemId),
+  ).length;
   const selectedGeneratedDocuments = selectedClient ? clientGeneratedDocuments[selectedClient.id] ?? {} : {};
   const selectedSlaDocument = selectedClient ? clientSlaDocuments[selectedClient.id] : undefined;
   const [pendingGeneratedDoc, setPendingGeneratedDoc] = useState<{ clientId: string; itemId: string } | null>(null);
@@ -1869,7 +1884,7 @@ function ClientsView({
                 </div>
                 <div className="mt-3 flex items-center justify-between gap-3">
                   <Badge variant="outline" className="rounded-md">
-                    {selectedChecklistItemIds.length}/{onboardingChecklist.length} complete
+                    {completedChecklistItemCount}/{checklistItemIds.length} complete
                   </Badge>
                 </div>
                 <div className="mt-4 grid gap-3">
@@ -1912,6 +1927,44 @@ function ClientsView({
                             onOpen={() => openClientSlaFile(selectedClient.id)}
                             onRemove={() => removeClientSlaFile(selectedClient.id)}
                           />
+                        )}
+                        {item.id === "seo-geo" && (
+                          <div className="ml-7 grid gap-2">
+                            {seoGeoChecklist.map((seoItem) => {
+                              const isSeoChecked = selectedChecklistItemIds.includes(seoItem.id);
+                              const seoDocumentAction = checklistDocumentActions[seoItem.id];
+                              const savedSeoDocumentUrl = selectedGeneratedDocuments[seoItem.id];
+
+                              return (
+                                <div key={seoItem.id} className="grid gap-2">
+                                  <OnboardingChecklistRow
+                                    item={seoItem}
+                                    checked={isSeoChecked}
+                                    documentAction={seoDocumentAction}
+                                    savedDocumentUrl={savedSeoDocumentUrl}
+                                    onCheckedChange={(checked) =>
+                                      toggleClientChecklistItem(selectedClient.id, seoItem.id, checked)
+                                    }
+                                    onNeedsGeneratedDocLink={() =>
+                                      setPendingGeneratedDoc({ clientId: selectedClient.id, itemId: seoItem.id })
+                                    }
+                                  />
+                                  {seoDocumentAction
+                                    && pendingGeneratedDoc?.clientId === selectedClient.id
+                                    && pendingGeneratedDoc.itemId === seoItem.id
+                                    && !savedSeoDocumentUrl && (
+                                    <GeneratedDocumentLinkCapture
+                                      label={seoDocumentAction.workingLabel}
+                                      onSave={(url) => {
+                                        saveClientGeneratedDocument(selectedClient.id, seoItem.id, url);
+                                        setPendingGeneratedDoc(null);
+                                      }}
+                                    />
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     );
@@ -1988,18 +2041,20 @@ function OnboardingChecklistRow({
       </label>
       {documentAction && (
         <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-md bg-white"
-            render={
-              <a href={documentAction.templateUrl} target="_blank" rel="noreferrer" />
-            }
-          >
-            {documentAction.templateLabel}
-            <ExternalLink className="size-3.5" />
-          </Button>
+          {documentAction.templateLabel && documentAction.templateUrl && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-md bg-white"
+              render={
+                <a href={documentAction.templateUrl} target="_blank" rel="noreferrer" />
+              }
+            >
+              {documentAction.templateLabel}
+              <ExternalLink className="size-3.5" />
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
