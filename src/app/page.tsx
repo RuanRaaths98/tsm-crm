@@ -595,6 +595,7 @@ export default function Home() {
     const wonLeads = leads.filter((lead) => lead.status === "Won");
     const lostLeads = leads.filter((lead) => lead.status === "Lost");
     const dueToday = tasks.filter((task) => isSameDay(parseISO(task.dueDate), today) && task.status !== "Done");
+    const activeRetainerValue = activeClients.reduce((sum, client) => sum + client.monthlyRetainerValue, 0);
     const pipelineValue = leads
       .filter((lead) => !["Won", "Lost"].includes(lead.status))
       .reduce((sum, lead) => sum + lead.budget, 0);
@@ -607,6 +608,7 @@ export default function Home() {
       activeClients: activeClients.length,
       dealsWon: wonLeads.length,
       dealsLost: lostLeads.length,
+      activeRetainerValue,
       pipelineValue,
     };
   }, [clients, leads, tasks]);
@@ -1460,6 +1462,7 @@ function DashboardView({
     ["Hot leads", dashboard.hotLeads, Flame],
     ["Follow-ups today", dashboard.followUpsDue, CalendarClock],
     ["Active clients", dashboard.activeClients, BadgeCheck],
+    ["Active retainer", currency(dashboard.activeRetainerValue), CircleDollarSign],
     ["Deals won", dashboard.dealsWon, CheckCircle2],
     ["Deals lost", dashboard.dealsLost, AlertTriangle],
     ["Monthly pipeline", currency(dashboard.pipelineValue), CircleDollarSign],
