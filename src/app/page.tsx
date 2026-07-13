@@ -146,6 +146,27 @@ const hookTypeOptions = [
   "Question",
   "Direct Call-Out",
 ];
+const creativeFormatOptions = [
+  "Myth vs Fact",
+  "With vs Without",
+  "Crossed-Out Problems",
+  "Old Me vs New Me",
+  "Chart Comparison",
+  "The Flowchart",
+  "Instagram Q&A",
+  "X Reasons Why",
+  "Sticky Notes",
+  "Texts",
+  "X Signs",
+  "Transformation Timeline",
+  "We're Sorry",
+  "Venn Diagram",
+  "Don't buy this",
+  "Google Search",
+  "Breaking News",
+  "Email",
+  "Iphone notes",
+];
 const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
 const offerDocUrl =
@@ -2074,6 +2095,13 @@ function TestingTrackerView({
           <TestingTextarea label="Creative" field={metaField("creative")} tracker={tracker} onChange={onChange} />
           <TestingTextarea label="Offer" field={metaField("offer")} tracker={tracker} onChange={onChange} />
         </div>
+        <TestingCheckboxGroup
+          label="Formats"
+          field={metaField("formats")}
+          options={creativeFormatOptions}
+          tracker={tracker}
+          onChange={onChange}
+        />
         <ScopedTestingHint activeValue={metaHookType} label="hook type" />
         <TestingSubheading title="Is It Working?" />
         <div className="grid gap-3 md:grid-cols-2">
@@ -2296,6 +2324,80 @@ function TestingSelect({
       </SelectField>
     </label>
   );
+}
+
+function TestingCheckboxGroup({
+  label,
+  field,
+  options,
+  tracker,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  options: string[];
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+}) {
+  const selectedOptions = parseTestingList(tracker[field]);
+
+  function toggleOption(option: string, checked: boolean) {
+    const nextOptions = new Set(selectedOptions);
+
+    if (checked) {
+      nextOptions.add(option);
+    } else {
+      nextOptions.delete(option);
+    }
+
+    onChange(field, JSON.stringify(Array.from(nextOptions)));
+  }
+
+  return (
+    <div className="grid gap-3 rounded-md border border-sky-200 bg-white/80 p-3">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-sky-950">{label}</p>
+        <span className="text-xs text-sky-800">{selectedOptions.length} selected</span>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {options.map((option) => {
+          const isChecked = selectedOptions.includes(option);
+
+          return (
+            <label
+              key={option}
+              className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition ${
+                isChecked
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300"
+              }`}
+            >
+              <Checkbox
+                checked={isChecked}
+                onCheckedChange={(checked) => toggleOption(option, Boolean(checked))}
+                aria-label={option}
+                className="bg-white"
+              />
+              <span>{option}</span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function parseTestingList(value?: string) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function resultTone(result?: string) {
