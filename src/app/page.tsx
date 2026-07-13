@@ -120,7 +120,6 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
-const clientSlaBucket = "client-slas";
 
 type SlaDocument = {
   name: string;
@@ -137,13 +136,6 @@ function formatFileSize(size: number) {
   }
 
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function sanitizeStorageFileName(fileName: string) {
-  return fileName
-    .toLowerCase()
-    .replace(/[^a-z0-9.-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
 
 type ProfileRow = {
@@ -301,34 +293,21 @@ function mapTaskRow(
 }
 
 async function loadClientSlaDocuments(
-  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
   clientIds: string[],
 ) {
-  const entries = await Promise.all(
-    clientIds.map(async (clientId) => {
-      const { data, error } = await supabase.storage
-        .from(clientSlaBucket)
-        .list(clientId, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+  if (!clientIds.length) {
+    return {};
+  }
 
-      if (error || !data?.[0]) {
-        return null;
-      }
+  const response = await fetch(`/api/client-slas?clientIds=${clientIds.join(",")}`);
 
-      const file = data[0];
+  if (!response.ok) {
+    return {};
+  }
 
-      return [
-        clientId,
-        {
-          name: file.name,
-          size: Number(file.metadata?.size ?? 0),
-          uploadedAt: file.created_at ?? file.updated_at ?? new Date().toISOString(),
-          path: `${clientId}/${file.name}`,
-        },
-      ] as const;
-    }),
-  );
+  const payload = (await response.json()) as { documents?: ClientSlaDocuments };
 
-  return Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null));
+  return payload.documents ?? {};
 }
 
 function SelectField({
@@ -489,7 +468,7 @@ export default function Home() {
 
       setClients(liveClients);
       setSelectedClientId((current) => current || liveClients[0]?.id || "");
-      setClientSlaDocuments(await loadClientSlaDocuments(supabase, liveClients.map((client) => client.id)));
+      setClientSlaDocuments(await loadClientSlaDocuments(liveClients.map((client) => client.id)));
 
       const relatedNames = new Map<string, string>([
         ...liveLeads.map((lead) => [`lead:${lead.id}`, lead.companyName || lead.fullName] as const),
@@ -829,15 +808,14 @@ export default function Home() {
     const supabase = getSupabaseBrowserClient();
 
     if (supabase) {
-      const { data: slaFiles } = await supabase.storage.from(clientSlaBucket).list(clientId);
-      const slaPaths = (slaFiles ?? []).map((file) => `${clientId}/${file.name}`);
-
       const [{ error: taskError }, { error }] = await Promise.all([
         supabase.from("tasks").delete().eq("related_type", "client").eq("related_id", clientId),
         supabase.from("clients").delete().eq("id", clientId),
-        slaPaths.length
-          ? supabase.storage.from(clientSlaBucket).remove(slaPaths)
-          : Promise.resolve({ error: null }),
+        fetch("/api/client-slas", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId }),
+        }),
       ]);
 
       if (taskError) {
@@ -857,40 +835,25 @@ export default function Home() {
       return;
     }
 
-    const supabase = getSupabaseBrowserClient();
-
-    if (!supabase) {
-      setCrmNotice("Connect Supabase before uploading SLA PDFs.");
-      return;
-    }
-
-    const existingDocument = clientSlaDocuments[clientId];
-    const storageFileName = `${Date.now()}-${sanitizeStorageFileName(file.name) || "sla.pdf"}`;
-    const path = `${clientId}/${storageFileName}`;
-
     try {
-      if (existingDocument) {
-        await supabase.storage.from(clientSlaBucket).remove([existingDocument.path]);
-      }
-
-      const { error } = await supabase.storage.from(clientSlaBucket).upload(path, file, {
-        contentType: "application/pdf",
-        upsert: true,
+      const form = new FormData();
+      form.set("clientId", clientId);
+      form.set("file", file);
+      const response = await fetch("/api/client-slas", {
+        method: "POST",
+        body: form,
       });
 
-      if (error) {
-        setCrmNotice(`Could not upload SLA PDF: ${error.message}`);
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        setCrmNotice(`Could not upload SLA PDF: ${payload.error ?? response.statusText}`);
         return;
       }
 
+      const payload = (await response.json()) as { document: SlaDocument };
       setClientSlaDocuments((current) => ({
         ...current,
-        [clientId]: {
-          name: file.name,
-          size: file.size,
-          uploadedAt: new Date().toISOString(),
-          path,
-        },
+        [clientId]: payload.document,
       }));
       setCrmNotice("SLA PDF uploaded to Supabase.");
     } catch {
@@ -899,48 +862,47 @@ export default function Home() {
   }
 
   async function openClientSlaFile(clientId: string) {
-    const supabase = getSupabaseBrowserClient();
     const document = clientSlaDocuments[clientId];
-
-    if (!supabase) {
-      setCrmNotice("Connect Supabase before opening SLA PDFs.");
-      return;
-    }
 
     if (!document) {
       setCrmNotice("No SLA PDF is stored for this client yet.");
       return;
     }
 
-    const { data, error } = await supabase.storage
-      .from(clientSlaBucket)
-      .createSignedUrl(document.path, 60 * 5);
+    const response = await fetch(`/api/client-slas?path=${encodeURIComponent(document.path)}`);
 
-    if (error || !data?.signedUrl) {
-      setCrmNotice(`Could not open the SLA PDF: ${error?.message ?? "Missing signed URL"}`);
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setCrmNotice(`Could not open the SLA PDF: ${payload.error ?? response.statusText}`);
       return;
     }
 
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    const payload = (await response.json()) as { signedUrl?: string };
+
+    if (!payload.signedUrl) {
+      setCrmNotice("Could not open the SLA PDF: missing signed URL.");
+      return;
+    }
+
+    window.open(payload.signedUrl, "_blank", "noopener,noreferrer");
   }
 
   async function removeClientSlaFile(clientId: string) {
-    const supabase = getSupabaseBrowserClient();
     const document = clientSlaDocuments[clientId];
-
-    if (!supabase) {
-      setCrmNotice("Connect Supabase before removing SLA PDFs.");
-      return;
-    }
 
     if (!document) {
       return;
     }
 
-    const { error } = await supabase.storage.from(clientSlaBucket).remove([document.path]);
+    const response = await fetch("/api/client-slas", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: document.path }),
+    });
 
-    if (error) {
-      setCrmNotice(`Could not remove the SLA PDF: ${error.message}`);
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setCrmNotice(`Could not remove the SLA PDF: ${payload.error ?? response.statusText}`);
       return;
     }
 
