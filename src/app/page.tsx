@@ -105,8 +105,7 @@ type OnboardingChecklistItem = {
 };
 
 type ChecklistDocumentAction = {
-  templateLabel?: string;
-  templateUrl?: string;
+  templates?: { label: string; url: string }[];
   workingLabel: string;
 };
 
@@ -138,23 +137,25 @@ const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
 const offerDocUrl =
   "https://docs.google.com/document/d/12RPViUO-OUAE0u5n8H1wU96msYxiG4bW83Iq6n81LlY/edit?usp=sharing";
+const offerPromptDocUrl =
+  "https://docs.google.com/document/d/1kONdvkmBH_64JOFSNh5_Xg9xihAuWELK_DtoI15XO4c/edit?usp=sharing";
 const hooksDocUrl =
   "https://docs.google.com/document/d/1KIg69dzM-TJhC30cOFfcSkZoZ1jPMr4jEUpWRqt8bSo/edit?usp=sharing";
 const newGoogleDocUrl = "https://docs.new";
 const checklistDocumentActions: Partial<Record<string, ChecklistDocumentAction>> = {
   "research-avatars": {
-    templateLabel: "Go research",
-    templateUrl: researchAvatarsDocUrl,
+    templates: [{ label: "Go research", url: researchAvatarsDocUrl }],
     workingLabel: "Combine The Research Here",
   },
   "offer-create": {
-    templateLabel: "Offer Doc",
-    templateUrl: offerDocUrl,
+    templates: [
+      { label: "Offer Doc", url: offerDocUrl },
+      { label: "Prompt", url: offerPromptDocUrl },
+    ],
     workingLabel: "Insert Your Offers Here",
   },
   "content-planning-hooks-testing": {
-    templateLabel: "Hooks Doc",
-    templateUrl: hooksDocUrl,
+    templates: [{ label: "Hooks Doc", url: hooksDocUrl }],
     workingLabel: "Insert Your Hooks Here",
   },
   "seo-geo-uber-suggest": {
@@ -2041,20 +2042,21 @@ function OnboardingChecklistRow({
       </label>
       {documentAction && (
         <div className="flex flex-wrap gap-2">
-          {documentAction.templateLabel && documentAction.templateUrl && (
+          {documentAction.templates?.map((template) => (
             <Button
+              key={template.label}
               type="button"
               variant="outline"
               size="sm"
               className="h-8 rounded-md bg-white"
               render={
-                <a href={documentAction.templateUrl} target="_blank" rel="noreferrer" />
+                <a href={template.url} target="_blank" rel="noreferrer" />
               }
             >
-              {documentAction.templateLabel}
+              {template.label}
               <ExternalLink className="size-3.5" />
             </Button>
-          )}
+          ))}
           <Button
             type="button"
             variant="outline"
