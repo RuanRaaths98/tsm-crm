@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  ExternalLink,
   FileText,
   Flame,
   LayoutDashboard,
@@ -120,6 +121,8 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
+const researchAvatarsDocUrl =
+  "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
 
 type SlaDocument = {
   name: string;
@@ -1860,18 +1863,36 @@ function OnboardingChecklistRow({
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const hasResearchLink = item.id === "research-avatars";
+
   return (
-    <label className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 transition hover:border-zinc-300 hover:bg-zinc-50">
-      <Checkbox
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        aria-label={item.title}
-        className="bg-white"
-      />
-      <span className={`text-sm font-medium ${checked ? "text-zinc-500 line-through" : "text-zinc-950"}`}>
-        {item.title}
-      </span>
-    </label>
+    <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 transition hover:border-zinc-300 hover:bg-zinc-50 sm:flex-row sm:items-center sm:justify-between">
+      <label className="flex min-w-0 cursor-pointer items-center gap-3">
+        <Checkbox
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          aria-label={item.title}
+          className="bg-white"
+        />
+        <span className={`text-sm font-medium ${checked ? "text-zinc-500 line-through" : "text-zinc-950"}`}>
+          {item.title}
+        </span>
+      </label>
+      {hasResearchLink && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 self-start rounded-md bg-white sm:self-auto"
+          render={
+            <a href={researchAvatarsDocUrl} target="_blank" rel="noreferrer" />
+          }
+        >
+          Go research
+          <ExternalLink className="size-3.5" />
+        </Button>
+      )}
+    </div>
   );
 }
 
