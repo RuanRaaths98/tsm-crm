@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  FileText,
   Flame,
   LayoutDashboard,
   Plus,
@@ -25,6 +26,7 @@ import { addDays, format, isAfter, isBefore, isSameDay, parseISO } from "date-fn
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -93,6 +95,66 @@ const temperatureStyles: Record<LeadTemperature, string> = {
   Warm: "border-amber-200 bg-amber-50 text-amber-800",
   Hot: "border-rose-200 bg-rose-50 text-rose-700",
 };
+
+type OnboardingChecklistItem = {
+  id: string;
+  title: string;
+  description: string;
+  checked: boolean;
+  details?: {
+    title: string;
+    body: string;
+    nextSteps: string[];
+  };
+};
+
+const onboardingChecklist: OnboardingChecklistItem[] = [
+  {
+    id: "welcome-call",
+    title: "Welcome call booked",
+    description: "Confirm contact details, goals, timelines, and success metrics.",
+    checked: true,
+    details: {
+      title: "Welcome call agenda",
+      body: "Use this call to align the client, sales notes, and delivery team before any production work starts.",
+      nextSteps: ["Confirm decision makers", "Capture campaign goals", "Agree on kickoff date"],
+    },
+  },
+  {
+    id: "access",
+    title: "Account access requested",
+    description: "Collect logins, ad account access, analytics access, and website permissions.",
+    checked: false,
+    details: {
+      title: "Access checklist",
+      body: "Request access early so delivery is not blocked after the kickoff call.",
+      nextSteps: ["Meta Business Manager", "Google Analytics/Search Console", "Website CMS or hosting"],
+    },
+  },
+  {
+    id: "invoice",
+    title: "First invoice sent",
+    description: "Send setup fees, retainer, and payment instructions.",
+    checked: true,
+  },
+  {
+    id: "assets",
+    title: "Brand assets received",
+    description: "Logo, colors, fonts, photography, offers, and current marketing materials.",
+    checked: false,
+    details: {
+      title: "Brand asset handover",
+      body: "A complete asset pack keeps creative work consistent and avoids delays during campaign setup.",
+      nextSteps: ["Logo files", "Brand guidelines", "Approved product or team images"],
+    },
+  },
+  {
+    id: "kickoff",
+    title: "Kickoff task created",
+    description: "Create the first internal delivery task and assign the owner.",
+    checked: false,
+  },
+];
 
 type ProfileRow = {
   id: string;
@@ -1474,6 +1536,25 @@ function ClientsView({
                   )}
                 </div>
               </div>
+              <Separator />
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">Onboarding checklist</p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Track the first steps needed to hand this client to delivery.
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="shrink-0 rounded-md">
+                    {onboardingChecklist.filter((item) => item.checked).length}/{onboardingChecklist.length}
+                  </Badge>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  {onboardingChecklist.map((item) => (
+                    <OnboardingChecklistRow key={item.id} item={item} />
+                  ))}
+                </div>
+              </div>
               <div>
                 <p className="text-sm font-medium">Notes</p>
                 <p className="mt-3 rounded-md bg-zinc-50 p-4 text-sm leading-6 text-zinc-600">
@@ -1484,6 +1565,56 @@ function ClientsView({
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function OnboardingChecklistRow({ item }: { item: OnboardingChecklistItem }) {
+  return (
+    <div className="grid gap-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+      <div className="flex gap-3">
+        <Checkbox checked={item.checked} disabled aria-label={item.title} className="mt-1 bg-white" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-zinc-950">{item.title}</p>
+          <p className="mt-1 text-sm leading-5 text-zinc-600">{item.description}</p>
+        </div>
+      </div>
+      {item.details && (
+        <Dialog>
+          <DialogTrigger
+            render={
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-9 justify-self-start rounded-md border-zinc-300 bg-white sm:justify-self-end"
+              />
+            }
+          >
+            <FileText className="size-4" />
+            Info
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{item.details.title}</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <p className="text-sm leading-6 text-zinc-600">{item.details.body}</p>
+              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+                <p className="text-sm font-medium">Next steps</p>
+                <div className="mt-3 grid gap-2">
+                  {item.details.nextSteps.map((step) => (
+                    <div key={step} className="flex items-center gap-2 text-sm text-zinc-600">
+                      <CheckCircle2 className="size-4 text-emerald-600" />
+                      {step}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
