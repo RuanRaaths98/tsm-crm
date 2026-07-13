@@ -12,7 +12,6 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
-  FileText,
   Flame,
   LayoutDashboard,
   Plus,
@@ -100,62 +99,24 @@ const temperatureStyles: Record<LeadTemperature, string> = {
 type OnboardingChecklistItem = {
   id: string;
   title: string;
-  description: string;
-  checked: boolean;
-  details?: {
-    title: string;
-    body: string;
-    nextSteps: string[];
-  };
 };
 
 const onboardingChecklist: OnboardingChecklistItem[] = [
-  {
-    id: "welcome-call",
-    title: "Welcome call booked",
-    description: "Confirm contact details, goals, timelines, and success metrics.",
-    checked: true,
-    details: {
-      title: "Welcome call agenda",
-      body: "Use this call to align the client, sales notes, and delivery team before any production work starts.",
-      nextSteps: ["Confirm decision makers", "Capture campaign goals", "Agree on kickoff date"],
-    },
-  },
-  {
-    id: "access",
-    title: "Account access requested",
-    description: "Collect logins, ad account access, analytics access, and website permissions.",
-    checked: false,
-    details: {
-      title: "Access checklist",
-      body: "Request access early so delivery is not blocked after the kickoff call.",
-      nextSteps: ["Meta Business Manager", "Google Analytics/Search Console", "Website CMS or hosting"],
-    },
-  },
-  {
-    id: "invoice",
-    title: "First invoice sent",
-    description: "Send setup fees, retainer, and payment instructions.",
-    checked: true,
-  },
-  {
-    id: "assets",
-    title: "Brand assets received",
-    description: "Logo, colors, fonts, photography, offers, and current marketing materials.",
-    checked: false,
-    details: {
-      title: "Brand asset handover",
-      body: "A complete asset pack keeps creative work consistent and avoids delays during campaign setup.",
-      nextSteps: ["Logo files", "Brand guidelines", "Approved product or team images"],
-    },
-  },
-  {
-    id: "kickoff",
-    title: "Kickoff task created",
-    description: "Create the first internal delivery task and assign the owner.",
-    checked: false,
-  },
+  { id: "sla", title: "SLA" },
+  { id: "tracking", title: "Tracking" },
+  { id: "research-avatars", title: "Research + avatars" },
+  { id: "heatmaps-data-ux", title: "Heatmaps + data driven UX" },
+  { id: "offer-create", title: "Offer create" },
+  { id: "lp-per-avatar-product-service", title: "LP per avatar/product/service" },
+  { id: "content-planning-hooks-testing", title: "Content planning/strategizing hooks and testing" },
+  { id: "content-shoot", title: "Content shoot" },
+  { id: "ads-run", title: "Ads run" },
+  { id: "seo-geo", title: "SEO/GEO if applicable" },
 ];
+
+type ClientChecklistState = Record<string, string[]>;
+
+const clientChecklistStorageKey = "tsm-crm-client-checklists";
 
 type ProfileRow = {
   id: string;
@@ -380,12 +341,34 @@ export default function Home() {
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
   const [crmNotice, setCrmNotice] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<string>(initialClients[0]?.id ?? "");
+  const [clientChecklistState, setClientChecklistState] = useState<ClientChecklistState>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const saved = window.localStorage.getItem(clientChecklistStorageKey);
+
+    if (!saved) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(saved) as ClientChecklistState;
+    } catch {
+      window.localStorage.removeItem(clientChecklistStorageKey);
+      return {};
+    }
+  });
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
   const [temperatureFilter, setTemperatureFilter] = useState("All");
   const [assigneeFilter, setAssigneeFilter] = useState("All");
   const [clientStatusFilter, setClientStatusFilter] = useState("All");
+
+  useEffect(() => {
+    window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
+  }, [clientChecklistState]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -770,6 +753,11 @@ export default function Home() {
     setTasks((current) =>
       current.filter((task) => !(task.relatedType === "client" && task.relatedId === clientId)),
     );
+    setClientChecklistState((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
     setSelectedClientId((current) => (current === clientId ? fallbackClientId : current));
 
     const supabase = getSupabaseBrowserClient();
@@ -789,6 +777,23 @@ export default function Home() {
         setCrmNotice(`Could not delete client: ${error.message}`);
       }
     }
+  }
+
+  function toggleClientChecklistItem(clientId: string, itemId: string, checked: boolean) {
+    setClientChecklistState((current) => {
+      const clientItems = new Set(current[clientId] ?? []);
+
+      if (checked) {
+        clientItems.add(itemId);
+      } else {
+        clientItems.delete(itemId);
+      }
+
+      return {
+        ...current,
+        [clientId]: Array.from(clientItems),
+      };
+    });
   }
 
   async function addTask(event: FormEvent<HTMLFormElement>) {
@@ -1029,6 +1034,8 @@ export default function Home() {
                 setSelectedClientId={setSelectedClientId}
                 addClient={addClient}
                 deleteClient={deleteClient}
+                clientChecklistState={clientChecklistState}
+                toggleClientChecklistItem={toggleClientChecklistItem}
                 teamMembers={teamMembers}
                 clientStatusFilter={clientStatusFilter}
                 setClientStatusFilter={setClientStatusFilter}
@@ -1471,6 +1478,8 @@ function ClientsView({
   setSelectedClientId,
   addClient,
   deleteClient,
+  clientChecklistState,
+  toggleClientChecklistItem,
   teamMembers,
   clientStatusFilter,
   setClientStatusFilter,
@@ -1481,10 +1490,14 @@ function ClientsView({
   setSelectedClientId: (value: string) => void;
   addClient: (event: FormEvent<HTMLFormElement>) => void;
   deleteClient: (clientId: string) => void;
+  clientChecklistState: ClientChecklistState;
+  toggleClientChecklistItem: (clientId: string, itemId: string, checked: boolean) => void;
   teamMembers: UserProfile[];
   clientStatusFilter: string;
   setClientStatusFilter: (value: string) => void;
 }) {
+  const selectedChecklistItemIds = selectedClient ? clientChecklistState[selectedClient.id] ?? [] : [];
+
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <Card className="rounded-md border-zinc-200 bg-white shadow-none">
@@ -1601,20 +1614,40 @@ function ClientsView({
               </div>
               <Separator />
               <div>
-                <div className="flex items-center justify-between gap-3">
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
                   <div>
                     <p className="text-sm font-medium">Onboarding checklist</p>
                     <p className="mt-1 text-sm text-zinc-500">
-                      Track the first steps needed to hand this client to delivery.
+                      Choose a client and track that client&apos;s own onboarding progress.
                     </p>
                   </div>
-                  <Badge variant="outline" className="shrink-0 rounded-md">
-                    {onboardingChecklist.filter((item) => item.checked).length}/{onboardingChecklist.length}
+                  <SelectField
+                    value={selectedClient.id}
+                    onChange={setSelectedClientId}
+                    className="w-full sm:w-64"
+                  >
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.clientName}
+                      </option>
+                    ))}
+                  </SelectField>
+                </div>
+                <div className="mt-3 flex items-center justify-between gap-3">
+                  <Badge variant="outline" className="rounded-md">
+                    {selectedChecklistItemIds.length}/{onboardingChecklist.length} complete
                   </Badge>
                 </div>
                 <div className="mt-4 grid gap-3">
                   {onboardingChecklist.map((item) => (
-                    <OnboardingChecklistRow key={item.id} item={item} />
+                    <OnboardingChecklistRow
+                      key={item.id}
+                      item={item}
+                      checked={selectedChecklistItemIds.includes(item.id)}
+                      onCheckedChange={(checked) =>
+                        toggleClientChecklistItem(selectedClient.id, item.id, checked)
+                      }
+                    />
                   ))}
                 </div>
               </div>
@@ -1656,53 +1689,27 @@ function DeleteIconButton({
   );
 }
 
-function OnboardingChecklistRow({ item }: { item: OnboardingChecklistItem }) {
+function OnboardingChecklistRow({
+  item,
+  checked,
+  onCheckedChange,
+}: {
+  item: OnboardingChecklistItem;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
   return (
-    <div className="grid gap-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="flex gap-3">
-        <Checkbox checked={item.checked} disabled aria-label={item.title} className="mt-1 bg-white" />
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-zinc-950">{item.title}</p>
-          <p className="mt-1 text-sm leading-5 text-zinc-600">{item.description}</p>
-        </div>
-      </div>
-      {item.details && (
-        <Dialog>
-          <DialogTrigger
-            render={
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-9 justify-self-start rounded-md border-zinc-300 bg-white sm:justify-self-end"
-              />
-            }
-          >
-            <FileText className="size-4" />
-            Info
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{item.details.title}</DialogTitle>
-            </DialogHeader>
-            <div className="grid gap-4">
-              <p className="text-sm leading-6 text-zinc-600">{item.details.body}</p>
-              <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
-                <p className="text-sm font-medium">Next steps</p>
-                <div className="mt-3 grid gap-2">
-                  {item.details.nextSteps.map((step) => (
-                    <div key={step} className="flex items-center gap-2 text-sm text-zinc-600">
-                      <CheckCircle2 className="size-4 text-emerald-600" />
-                      {step}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
+    <label className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 transition hover:border-zinc-300 hover:bg-zinc-50">
+      <Checkbox
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        aria-label={item.title}
+        className="bg-white"
+      />
+      <span className={`text-sm font-medium ${checked ? "text-zinc-500 line-through" : "text-zinc-950"}`}>
+        {item.title}
+      </span>
+    </label>
   );
 }
 
