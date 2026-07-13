@@ -180,6 +180,21 @@ with check (public.is_admin());
 create policy "settings everyone read sources" on public.lead_sources
 for select using (auth.role() = 'authenticated');
 
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('client-slas', 'client-slas', false, 10485760, array['application/pdf'])
+on conflict (id) do update set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "authenticated manage client slas" on storage.objects;
+
+create policy "authenticated manage client slas" on storage.objects
+for all
+to authenticated
+using (bucket_id = 'client-slas')
+with check (bucket_id = 'client-slas');
+
 insert into public.services (name) values
   ('Full Package'),
   ('Paid Media Management'),

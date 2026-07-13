@@ -119,18 +119,16 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
-const clientSlaDocumentsStorageKey = "tsm-crm-client-sla-documents";
+const clientSlaBucket = "client-slas";
 
 type SlaDocument = {
   name: string;
   size: number;
   uploadedAt: string;
+  path: string;
 };
 
 type ClientSlaDocuments = Record<string, SlaDocument>;
-
-const slaDatabaseName = "tsm-crm-sla-documents";
-const slaStoreName = "sla-pdfs";
 
 function formatFileSize(size: number) {
   if (size < 1024 * 1024) {
@@ -140,68 +138,11 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function openSlaDatabase() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = window.indexedDB.open(slaDatabaseName, 1);
-
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(slaStoreName);
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function putSlaPdf(clientId: string, file: File) {
-  const database = await openSlaDatabase();
-
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(slaStoreName, "readwrite");
-    transaction.objectStore(slaStoreName).put(file, clientId);
-    transaction.oncomplete = () => {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      database.close();
-      reject(transaction.error);
-    };
-  });
-}
-
-async function getSlaPdf(clientId: string) {
-  const database = await openSlaDatabase();
-
-  return new Promise<Blob | null>((resolve, reject) => {
-    const transaction = database.transaction(slaStoreName, "readonly");
-    const request = transaction.objectStore(slaStoreName).get(clientId);
-
-    request.onsuccess = () => {
-      database.close();
-      resolve((request.result as Blob | undefined) ?? null);
-    };
-    request.onerror = () => {
-      database.close();
-      reject(request.error);
-    };
-  });
-}
-
-async function deleteSlaPdf(clientId: string) {
-  const database = await openSlaDatabase();
-
-  return new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(slaStoreName, "readwrite");
-    transaction.objectStore(slaStoreName).delete(clientId);
-    transaction.oncomplete = () => {
-      database.close();
-      resolve();
-    };
-    transaction.onerror = () => {
-      database.close();
-      reject(transaction.error);
-    };
-  });
+function sanitizeStorageFileName(fileName: string) {
+  return fileName
+    .toLowerCase()
+    .replace(/[^a-z0-9.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 type ProfileRow = {
@@ -358,6 +299,37 @@ function mapTaskRow(
   };
 }
 
+async function loadClientSlaDocuments(
+  supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>,
+  clientIds: string[],
+) {
+  const entries = await Promise.all(
+    clientIds.map(async (clientId) => {
+      const { data, error } = await supabase.storage
+        .from(clientSlaBucket)
+        .list(clientId, { limit: 1, sortBy: { column: "created_at", order: "desc" } });
+
+      if (error || !data?.[0]) {
+        return null;
+      }
+
+      const file = data[0];
+
+      return [
+        clientId,
+        {
+          name: file.name,
+          size: Number(file.metadata?.size ?? 0),
+          uploadedAt: file.created_at ?? file.updated_at ?? new Date().toISOString(),
+          path: `${clientId}/${file.name}`,
+        },
+      ] as const;
+    }),
+  );
+
+  return Object.fromEntries(entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null));
+}
+
 function SelectField({
   value,
   onChange,
@@ -445,24 +417,7 @@ export default function Home() {
       return {};
     }
   });
-  const [clientSlaDocuments, setClientSlaDocuments] = useState<ClientSlaDocuments>(() => {
-    if (typeof window === "undefined") {
-      return {};
-    }
-
-    const saved = window.localStorage.getItem(clientSlaDocumentsStorageKey);
-
-    if (!saved) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(saved) as ClientSlaDocuments;
-    } catch {
-      window.localStorage.removeItem(clientSlaDocumentsStorageKey);
-      return {};
-    }
-  });
+  const [clientSlaDocuments, setClientSlaDocuments] = useState<ClientSlaDocuments>({});
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
@@ -473,10 +428,6 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
   }, [clientChecklistState]);
-
-  useEffect(() => {
-    window.localStorage.setItem(clientSlaDocumentsStorageKey, JSON.stringify(clientSlaDocuments));
-  }, [clientSlaDocuments]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -537,6 +488,7 @@ export default function Home() {
 
       setClients(liveClients);
       setSelectedClientId((current) => current || liveClients[0]?.id || "");
+      setClientSlaDocuments(await loadClientSlaDocuments(supabase, liveClients.map((client) => client.id)));
 
       const relatedNames = new Map<string, string>([
         ...liveLeads.map((lead) => [`lead:${lead.id}`, lead.companyName || lead.fullName] as const),
@@ -871,17 +823,20 @@ export default function Home() {
       delete next[clientId];
       return next;
     });
-    deleteSlaPdf(clientId).catch(() => {
-      setCrmNotice("Could not remove the stored SLA PDF for this client.");
-    });
     setSelectedClientId((current) => (current === clientId ? fallbackClientId : current));
 
     const supabase = getSupabaseBrowserClient();
 
     if (supabase) {
+      const { data: slaFiles } = await supabase.storage.from(clientSlaBucket).list(clientId);
+      const slaPaths = (slaFiles ?? []).map((file) => `${clientId}/${file.name}`);
+
       const [{ error: taskError }, { error }] = await Promise.all([
         supabase.from("tasks").delete().eq("related_type", "client").eq("related_id", clientId),
         supabase.from("clients").delete().eq("id", clientId),
+        slaPaths.length
+          ? supabase.storage.from(clientSlaBucket).remove(slaPaths)
+          : Promise.resolve({ error: null }),
       ]);
 
       if (taskError) {
@@ -901,51 +856,99 @@ export default function Home() {
       return;
     }
 
+    const supabase = getSupabaseBrowserClient();
+
+    if (!supabase) {
+      setCrmNotice("Connect Supabase before uploading SLA PDFs.");
+      return;
+    }
+
+    const existingDocument = clientSlaDocuments[clientId];
+    const storageFileName = `${Date.now()}-${sanitizeStorageFileName(file.name) || "sla.pdf"}`;
+    const path = `${clientId}/${storageFileName}`;
+
     try {
-      await putSlaPdf(clientId, file);
+      if (existingDocument) {
+        await supabase.storage.from(clientSlaBucket).remove([existingDocument.path]);
+      }
+
+      const { error } = await supabase.storage.from(clientSlaBucket).upload(path, file, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+
+      if (error) {
+        setCrmNotice(`Could not upload SLA PDF: ${error.message}`);
+        return;
+      }
+
       setClientSlaDocuments((current) => ({
         ...current,
         [clientId]: {
           name: file.name,
           size: file.size,
           uploadedAt: new Date().toISOString(),
+          path,
         },
       }));
-      setCrmNotice("SLA PDF stored.");
+      setCrmNotice("SLA PDF uploaded to Supabase.");
     } catch {
-      setCrmNotice("Could not store the SLA PDF in this browser.");
+      setCrmNotice("Could not upload the SLA PDF to Supabase.");
     }
   }
 
   async function openClientSlaFile(clientId: string) {
-    try {
-      const file = await getSlaPdf(clientId);
+    const supabase = getSupabaseBrowserClient();
+    const document = clientSlaDocuments[clientId];
 
-      if (!file) {
-        setCrmNotice("No SLA PDF is stored for this client yet.");
-        return;
-      }
-
-      const url = window.URL.createObjectURL(file);
-      window.open(url, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
-    } catch {
-      setCrmNotice("Could not open the stored SLA PDF.");
+    if (!supabase) {
+      setCrmNotice("Connect Supabase before opening SLA PDFs.");
+      return;
     }
+
+    if (!document) {
+      setCrmNotice("No SLA PDF is stored for this client yet.");
+      return;
+    }
+
+    const { data, error } = await supabase.storage
+      .from(clientSlaBucket)
+      .createSignedUrl(document.path, 60 * 5);
+
+    if (error || !data?.signedUrl) {
+      setCrmNotice(`Could not open the SLA PDF: ${error?.message ?? "Missing signed URL"}`);
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   }
 
   async function removeClientSlaFile(clientId: string) {
-    try {
-      await deleteSlaPdf(clientId);
-      setClientSlaDocuments((current) => {
-        const next = { ...current };
-        delete next[clientId];
-        return next;
-      });
-      setCrmNotice("SLA PDF removed.");
-    } catch {
-      setCrmNotice("Could not remove the stored SLA PDF.");
+    const supabase = getSupabaseBrowserClient();
+    const document = clientSlaDocuments[clientId];
+
+    if (!supabase) {
+      setCrmNotice("Connect Supabase before removing SLA PDFs.");
+      return;
     }
+
+    if (!document) {
+      return;
+    }
+
+    const { error } = await supabase.storage.from(clientSlaBucket).remove([document.path]);
+
+    if (error) {
+      setCrmNotice(`Could not remove the SLA PDF: ${error.message}`);
+      return;
+    }
+
+    setClientSlaDocuments((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
+    setCrmNotice("SLA PDF removed from Supabase.");
   }
 
   function toggleClientChecklistItem(clientId: string, itemId: string, checked: boolean) {
