@@ -105,6 +105,7 @@ type OnboardingChecklistItem = {
 
 const onboardingChecklist: OnboardingChecklistItem[] = [
   { id: "sla", title: "SLA" },
+  { id: "access-to-businesses", title: "Access To Businesses" },
   { id: "tracking", title: "Tracking" },
   { id: "research-avatars", title: "Research + avatars" },
   { id: "heatmaps-data-ux", title: "Heatmaps + data driven UX" },
