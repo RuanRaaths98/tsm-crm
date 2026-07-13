@@ -127,9 +127,25 @@ const seoGeoChecklist: OnboardingChecklistItem[] = [
 
 type ClientChecklistState = Record<string, string[]>;
 type ClientGeneratedDocuments = Record<string, Record<string, string>>;
+type ClientTestingTrackers = Record<string, Record<string, string>>;
+type ClientWorkspaceTab = "onboarding" | "testing";
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
 const clientGeneratedDocumentsStorageKey = "tsm-crm-client-generated-documents";
+const clientTestingTrackersStorageKey = "tsm-crm-client-testing-trackers";
+const testingResultOptions = ["Working", "Not Working", "Needs More Time"];
+const hookTypeOptions = [
+  "Problem",
+  "Outcome",
+  "Curiosity",
+  "Contrarian",
+  "Mistake",
+  "List",
+  "Proof",
+  "Story",
+  "Question",
+  "Direct Call-Out",
+];
 const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
 const offerDocUrl =
@@ -439,6 +455,24 @@ export default function Home() {
       return {};
     }
   });
+  const [clientTestingTrackers, setClientTestingTrackers] = useState<ClientTestingTrackers>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const saved = window.localStorage.getItem(clientTestingTrackersStorageKey);
+
+    if (!saved) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(saved) as ClientTestingTrackers;
+    } catch {
+      window.localStorage.removeItem(clientTestingTrackersStorageKey);
+      return {};
+    }
+  });
   const [clientSlaDocuments, setClientSlaDocuments] = useState<ClientSlaDocuments>({});
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -454,6 +488,10 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(clientGeneratedDocumentsStorageKey, JSON.stringify(clientGeneratedDocuments));
   }, [clientGeneratedDocuments]);
+
+  useEffect(() => {
+    window.localStorage.setItem(clientTestingTrackersStorageKey, JSON.stringify(clientTestingTrackers));
+  }, [clientTestingTrackers]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -838,6 +876,11 @@ export default function Home() {
       delete next[clientId];
       return next;
     });
+    setClientTestingTrackers((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
     setClientSlaDocuments((current) => {
       const next = { ...current };
       delete next[clientId];
@@ -987,6 +1030,16 @@ export default function Home() {
       },
     }));
     setCrmNotice("Google Doc link saved.");
+  }
+
+  function updateClientTestingTracker(clientId: string, field: string, value: string) {
+    setClientTestingTrackers((current) => ({
+      ...current,
+      [clientId]: {
+        ...(current[clientId] ?? {}),
+        [field]: value,
+      },
+    }));
   }
 
   async function addTask(event: FormEvent<HTMLFormElement>) {
@@ -1230,6 +1283,8 @@ export default function Home() {
                 toggleClientChecklistItem={toggleClientChecklistItem}
                 clientGeneratedDocuments={clientGeneratedDocuments}
                 saveClientGeneratedDocument={saveClientGeneratedDocument}
+                clientTestingTrackers={clientTestingTrackers}
+                updateClientTestingTracker={updateClientTestingTracker}
                 clientSlaDocuments={clientSlaDocuments}
                 saveClientSlaFile={saveClientSlaFile}
                 openClientSlaFile={openClientSlaFile}
@@ -1654,6 +1709,8 @@ function ClientsView({
   toggleClientChecklistItem,
   clientGeneratedDocuments,
   saveClientGeneratedDocument,
+  clientTestingTrackers,
+  updateClientTestingTracker,
   clientSlaDocuments,
   saveClientSlaFile,
   openClientSlaFile,
@@ -1672,6 +1729,8 @@ function ClientsView({
   toggleClientChecklistItem: (clientId: string, itemId: string, checked: boolean) => void;
   clientGeneratedDocuments: ClientGeneratedDocuments;
   saveClientGeneratedDocument: (clientId: string, itemId: string, url: string) => void;
+  clientTestingTrackers: ClientTestingTrackers;
+  updateClientTestingTracker: (clientId: string, field: string, value: string) => void;
   clientSlaDocuments: ClientSlaDocuments;
   saveClientSlaFile: (clientId: string, file: File) => void;
   openClientSlaFile: (clientId: string) => void;
@@ -1686,12 +1745,34 @@ function ClientsView({
     checklistItemIds.includes(itemId),
   ).length;
   const selectedGeneratedDocuments = selectedClient ? clientGeneratedDocuments[selectedClient.id] ?? {} : {};
+  const selectedTestingTracker = selectedClient ? clientTestingTrackers[selectedClient.id] ?? {} : {};
   const selectedSlaDocument = selectedClient ? clientSlaDocuments[selectedClient.id] : undefined;
   const [pendingGeneratedDoc, setPendingGeneratedDoc] = useState<{ clientId: string; itemId: string } | null>(null);
+  const [clientWorkspaceTab, setClientWorkspaceTab] = useState<ClientWorkspaceTab>("onboarding");
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-      <Card className="rounded-md border-zinc-200 bg-white shadow-none">
+    <div className="grid gap-4">
+      <div className="flex flex-wrap gap-2">
+        {([
+          ["onboarding", "Onboarding"],
+          ["testing", "Testing"],
+        ] as [ClientWorkspaceTab, string][]).map(([tab, label]) => (
+          <Button
+            key={tab}
+            type="button"
+            variant={clientWorkspaceTab === tab ? "default" : "outline"}
+            className={`h-10 rounded-md ${
+              clientWorkspaceTab === tab ? "bg-[#f70805] text-white hover:bg-[#d80f0c]" : "bg-white"
+            }`}
+            onClick={() => setClientWorkspaceTab(tab)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <Card className="rounded-md border-zinc-200 bg-white shadow-none">
         <CardHeader className="gap-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -1749,9 +1830,9 @@ function ClientsView({
             );
           })}
         </CardContent>
-      </Card>
+        </Card>
 
-      <Card className="rounded-md border-zinc-200 bg-white shadow-none">
+        <Card className="rounded-md border-zinc-200 bg-white shadow-none">
         <CardHeader>
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -1779,6 +1860,7 @@ function ClientsView({
               No client selected.
             </div>
           ) : (
+            clientWorkspaceTab === "onboarding" ? (
             <div className="grid gap-6">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Info label="Monthly retainer" value={currency(selectedClient.monthlyRetainerValue)} />
@@ -1920,11 +2002,296 @@ function ClientsView({
                 </p>
               </div>
             </div>
+            ) : (
+              <TestingTrackerView
+                client={selectedClient}
+                tracker={selectedTestingTracker}
+                onChange={(field, value) => updateClientTestingTracker(selectedClient.id, field, value)}
+              />
+            )
           )}
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     </div>
   );
+}
+
+function TestingTrackerView({
+  client,
+  tracker,
+  onChange,
+}: {
+  client: Client;
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+}) {
+  const resultItems = [
+    ["META", tracker.metaResult],
+    ["GOOGLE", tracker.googleResult],
+    ["EMAIL", tracker.emailResult],
+  ];
+
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-medium">Testing tracker</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Saved for {client.clientName}. Use the result colours to make decisions quickly.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {resultItems.map(([label, value]) => (
+              <span key={label} className={`rounded-md border px-2.5 py-1 text-xs font-medium ${resultTone(value)}`}>
+                {label}: {value || "Not set"}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <TestingSection title="Campaign" tone="border-zinc-200 bg-white">
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingInput label="Brand / Product" field="campaignBrandProduct" tracker={tracker} onChange={onChange} />
+          <TestingInput label="Campaign" field="campaignName" tracker={tracker} onChange={onChange} />
+          <TestingInput label="Date" field="campaignDate" type="date" tracker={tracker} onChange={onChange} />
+          <TestingInput label="Main Goal" field="campaignGoal" tracker={tracker} onChange={onChange} />
+        </div>
+      </TestingSection>
+
+      <TestingSection title="META" tone="border-sky-200 bg-sky-50/70">
+        <TestingSubheading title="What We Tested" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Hook Type" field="metaHookType" options={hookTypeOptions} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Hook" field="metaHook" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Copy Angle" field="metaCopyAngle" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Creative" field="metaCreative" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Offer" field="metaOffer" tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Is It Working?" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Result" field="metaResult" options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
+          <TestingTextarea label="Why?" field="metaWhy" tracker={tracker} onChange={onChange} />
+          <TestingSelect label="What stood out?" field="metaStoodOut" options={["Hook", "Copy", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Decision" />
+        <div className="grid gap-3 md:grid-cols-3">
+          <TestingTextarea label="Double down on" field="metaDoubleDown" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Stop or change" field="metaStopChange" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Next move" field="metaNextMove" tracker={tracker} onChange={onChange} />
+        </div>
+      </TestingSection>
+
+      <TestingSection title="GOOGLE" tone="border-amber-200 bg-amber-50/70">
+        <TestingSubheading title="What We Tested" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingTextarea label="Keywords / Search Theme" field="googleKeywords" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="AI Searches or Customer Questions" field="googleAiSearches" tracker={tracker} onChange={onChange} />
+          <TestingSelect label="Campaign Type" field="googleCampaignType" options={["Search", "Performance Max", "Shopping", "Other"]} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Offer" field="googleOffer" tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Is It Working?" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Result" field="googleResult" options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
+          <TestingTextarea label="Why?" field="googleWhy" tracker={tracker} onChange={onChange} />
+          <TestingSelect label="What are people responding to?" field="googleRespondingTo" options={["Keyword", "Problem", "Outcome", "Offer"]} tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Decision" />
+        <div className="grid gap-3 md:grid-cols-3">
+          <TestingTextarea label="Double down on" field="googleDoubleDown" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Remove or change" field="googleRemoveChange" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Next move" field="googleNextMove" tracker={tracker} onChange={onChange} />
+        </div>
+      </TestingSection>
+
+      <TestingSection title="EMAIL" tone="border-violet-200 bg-violet-50/70">
+        <TestingSubheading title="What We Tested" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Subject-Line Hook Type" field="emailHookType" options={hookTypeOptions} tracker={tracker} onChange={onChange} />
+          <TestingInput label="Subject Line" field="emailSubjectLine" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Primary Message" field="emailPrimaryMessage" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Creative" field="emailCreative" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Offer" field="emailOffer" tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Is It Working?" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Result" field="emailResult" options={testingResultOptions} tracker={tracker} onChange={onChange} resultStyle />
+          <TestingTextarea label="Why?" field="emailWhy" tracker={tracker} onChange={onChange} />
+          <TestingSelect label="What stood out?" field="emailStoodOut" options={["Subject", "Message", "Creative", "Offer"]} tracker={tracker} onChange={onChange} />
+        </div>
+        <TestingSubheading title="Decision" />
+        <div className="grid gap-3 md:grid-cols-3">
+          <TestingTextarea label="Double down on" field="emailDoubleDown" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Stop or change" field="emailStopChange" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Next move" field="emailNextMove" tracker={tracker} onChange={onChange} />
+        </div>
+      </TestingSection>
+
+      <TestingSection title="Overall Campaign Learning" tone="border-emerald-200 bg-emerald-50/70">
+        <div className="grid gap-3 md:grid-cols-2">
+          <TestingSelect label="Best Hook Type" field="overallBestHookType" options={hookTypeOptions} tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Best Message" field="overallBestMessage" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Best Creative" field="overallBestCreative" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="Best Offer" field="overallBestOffer" tracker={tracker} onChange={onChange} />
+          <TestingInput label="Best Platform" field="overallBestPlatform" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="What Is Not Working?" field="overallNotWorking" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="What Should We Double Down On?" field="overallDoubleDown" tracker={tracker} onChange={onChange} />
+          <TestingTextarea label="What Is the Next Move?" field="overallNextMove" tracker={tracker} onChange={onChange} />
+        </div>
+      </TestingSection>
+
+      <TestingSection title="Quick Hook Reference" tone="border-zinc-200 bg-zinc-50">
+        <div className="grid gap-2 text-sm text-zinc-700 md:grid-cols-2">
+          {[
+            ["Problem", "Lead with the pain."],
+            ["Outcome", "Lead with the result they want."],
+            ["Curiosity", "Create an open loop."],
+            ["Contrarian", "Challenge what they believe."],
+            ["Mistake", "Show what they are doing wrong."],
+            ["List", "Give clear tips, steps or reasons."],
+            ["Proof", "Lead with a verified result."],
+            ["Story", "Start with an interesting moment."],
+            ["Question", "Ask what they already want answered."],
+            ["Direct Call-Out", "Name the specific audience."],
+          ].map(([name, description]) => (
+            <div key={name} className="rounded-md border border-zinc-200 bg-white p-3">
+              <span className="font-medium text-zinc-950">{name}:</span> {description}
+            </div>
+          ))}
+        </div>
+        <div className="rounded-md border border-zinc-200 bg-white p-3 text-sm text-zinc-700">
+          If you are a <span className="font-medium">[specific audience]</span> struggling with{" "}
+          <span className="font-medium">[specific problem]</span>, here is how to{" "}
+          <span className="font-medium">[desired result]</span> without{" "}
+          <span className="font-medium">[major objection]</span>.
+        </div>
+      </TestingSection>
+    </div>
+  );
+}
+
+function TestingSection({
+  title,
+  tone,
+  children,
+}: {
+  title: string;
+  tone: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`grid gap-4 rounded-md border p-4 ${tone}`}>
+      <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-zinc-950">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function TestingSubheading({ title }: { title: string }) {
+  return <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">{title}</p>;
+}
+
+function TestingInput({
+  label,
+  field,
+  type = "text",
+  tracker,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  type?: string;
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-medium text-zinc-600">{label}</span>
+      <Input
+        type={type}
+        value={tracker[field] ?? ""}
+        onChange={(event) => onChange(field, event.target.value)}
+        className="rounded-md bg-white"
+      />
+    </label>
+  );
+}
+
+function TestingTextarea({
+  label,
+  field,
+  tracker,
+  onChange,
+}: {
+  label: string;
+  field: string;
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+}) {
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-medium text-zinc-600">{label}</span>
+      <Textarea
+        value={tracker[field] ?? ""}
+        onChange={(event) => onChange(field, event.target.value)}
+        className="min-h-24 rounded-md bg-white"
+      />
+    </label>
+  );
+}
+
+function TestingSelect({
+  label,
+  field,
+  options,
+  tracker,
+  onChange,
+  resultStyle = false,
+}: {
+  label: string;
+  field: string;
+  options: string[];
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+  resultStyle?: boolean;
+}) {
+  const value = tracker[field] ?? "";
+
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-medium text-zinc-600">{label}</span>
+      <SelectField
+        value={value}
+        onChange={(nextValue) => onChange(field, nextValue)}
+        className={resultStyle ? resultTone(value) : ""}
+      >
+        <option value="">Choose one</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </SelectField>
+    </label>
+  );
+}
+
+function resultTone(result?: string) {
+  if (result === "Working") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  }
+
+  if (result === "Not Working") {
+    return "border-rose-300 bg-rose-50 text-rose-800";
+  }
+
+  if (result === "Needs More Time") {
+    return "border-amber-300 bg-amber-50 text-amber-800";
+  }
+
+  return "border-zinc-200 bg-white text-zinc-600";
 }
 
 function DeleteIconButton({
