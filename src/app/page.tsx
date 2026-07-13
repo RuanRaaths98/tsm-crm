@@ -104,6 +104,12 @@ type OnboardingChecklistItem = {
   title: string;
 };
 
+type ChecklistDocumentAction = {
+  templateLabel: string;
+  templateUrl: string;
+  workingLabel: string;
+};
+
 const onboardingChecklist: OnboardingChecklistItem[] = [
   { id: "sla", title: "SLA" },
   { id: "access-to-businesses", title: "Access To Businesses" },
@@ -119,11 +125,34 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
 ];
 
 type ClientChecklistState = Record<string, string[]>;
+type ClientGeneratedDocuments = Record<string, Record<string, string>>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
+const clientGeneratedDocumentsStorageKey = "tsm-crm-client-generated-documents";
 const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
-const newResearchDocUrl = "https://docs.new";
+const offerDocUrl =
+  "https://docs.google.com/document/d/12RPViUO-OUAE0u5n8H1wU96msYxiG4bW83Iq6n81LlY/edit?usp=sharing";
+const hooksDocUrl =
+  "https://docs.google.com/document/d/1KIg69dzM-TJhC30cOFfcSkZoZ1jPMr4jEUpWRqt8bSo/edit?usp=sharing";
+const newGoogleDocUrl = "https://docs.new";
+const checklistDocumentActions: Partial<Record<string, ChecklistDocumentAction>> = {
+  "research-avatars": {
+    templateLabel: "Go research",
+    templateUrl: researchAvatarsDocUrl,
+    workingLabel: "Combine The Research Here",
+  },
+  "offer-create": {
+    templateLabel: "Offer Doc",
+    templateUrl: offerDocUrl,
+    workingLabel: "Insert Your Offers Here",
+  },
+  "content-planning-hooks-testing": {
+    templateLabel: "Hooks Doc",
+    templateUrl: hooksDocUrl,
+    workingLabel: "Insert Your Hooks Here",
+  },
+};
 
 type SlaDocument = {
   name: string;
@@ -401,6 +430,24 @@ export default function Home() {
       return {};
     }
   });
+  const [clientGeneratedDocuments, setClientGeneratedDocuments] = useState<ClientGeneratedDocuments>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const saved = window.localStorage.getItem(clientGeneratedDocumentsStorageKey);
+
+    if (!saved) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(saved) as ClientGeneratedDocuments;
+    } catch {
+      window.localStorage.removeItem(clientGeneratedDocumentsStorageKey);
+      return {};
+    }
+  });
   const [clientSlaDocuments, setClientSlaDocuments] = useState<ClientSlaDocuments>({});
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -412,6 +459,10 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
   }, [clientChecklistState]);
+
+  useEffect(() => {
+    window.localStorage.setItem(clientGeneratedDocumentsStorageKey, JSON.stringify(clientGeneratedDocuments));
+  }, [clientGeneratedDocuments]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -802,6 +853,11 @@ export default function Home() {
       delete next[clientId];
       return next;
     });
+    setClientGeneratedDocuments((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
     setClientSlaDocuments((current) => {
       const next = { ...current };
       delete next[clientId];
@@ -933,6 +989,24 @@ export default function Home() {
         [clientId]: Array.from(clientItems),
       };
     });
+  }
+
+  function saveClientGeneratedDocument(clientId: string, itemId: string, url: string) {
+    const trimmedUrl = url.trim();
+
+    if (!trimmedUrl.startsWith("https://docs.google.com/document/")) {
+      setCrmNotice("Please paste a Google Docs document link.");
+      return;
+    }
+
+    setClientGeneratedDocuments((current) => ({
+      ...current,
+      [clientId]: {
+        ...(current[clientId] ?? {}),
+        [itemId]: trimmedUrl,
+      },
+    }));
+    setCrmNotice("Google Doc link saved.");
   }
 
   async function addTask(event: FormEvent<HTMLFormElement>) {
@@ -1175,6 +1249,8 @@ export default function Home() {
                 deleteClient={deleteClient}
                 clientChecklistState={clientChecklistState}
                 toggleClientChecklistItem={toggleClientChecklistItem}
+                clientGeneratedDocuments={clientGeneratedDocuments}
+                saveClientGeneratedDocument={saveClientGeneratedDocument}
                 clientSlaDocuments={clientSlaDocuments}
                 saveClientSlaFile={saveClientSlaFile}
                 openClientSlaFile={openClientSlaFile}
@@ -1623,6 +1699,8 @@ function ClientsView({
   deleteClient,
   clientChecklistState,
   toggleClientChecklistItem,
+  clientGeneratedDocuments,
+  saveClientGeneratedDocument,
   clientSlaDocuments,
   saveClientSlaFile,
   openClientSlaFile,
@@ -1639,6 +1717,8 @@ function ClientsView({
   deleteClient: (clientId: string) => void;
   clientChecklistState: ClientChecklistState;
   toggleClientChecklistItem: (clientId: string, itemId: string, checked: boolean) => void;
+  clientGeneratedDocuments: ClientGeneratedDocuments;
+  saveClientGeneratedDocument: (clientId: string, itemId: string, url: string) => void;
   clientSlaDocuments: ClientSlaDocuments;
   saveClientSlaFile: (clientId: string, file: File) => void;
   openClientSlaFile: (clientId: string) => void;
@@ -1648,7 +1728,9 @@ function ClientsView({
   setClientStatusFilter: (value: string) => void;
 }) {
   const selectedChecklistItemIds = selectedClient ? clientChecklistState[selectedClient.id] ?? [] : [];
+  const selectedGeneratedDocuments = selectedClient ? clientGeneratedDocuments[selectedClient.id] ?? {} : {};
   const selectedSlaDocument = selectedClient ? clientSlaDocuments[selectedClient.id] : undefined;
+  const [pendingGeneratedDoc, setPendingGeneratedDoc] = useState<{ clientId: string; itemId: string } | null>(null);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -1793,16 +1875,35 @@ function ClientsView({
                 <div className="mt-4 grid gap-3">
                   {onboardingChecklist.map((item) => {
                     const isChecked = selectedChecklistItemIds.includes(item.id);
+                    const documentAction = checklistDocumentActions[item.id];
+                    const savedDocumentUrl = selectedGeneratedDocuments[item.id];
 
                     return (
                       <div key={item.id} className="grid gap-2">
                         <OnboardingChecklistRow
                           item={item}
                           checked={isChecked}
+                          documentAction={documentAction}
+                          savedDocumentUrl={savedDocumentUrl}
                           onCheckedChange={(checked) =>
                             toggleClientChecklistItem(selectedClient.id, item.id, checked)
                           }
+                          onNeedsGeneratedDocLink={() =>
+                            setPendingGeneratedDoc({ clientId: selectedClient.id, itemId: item.id })
+                          }
                         />
+                        {documentAction
+                          && pendingGeneratedDoc?.clientId === selectedClient.id
+                          && pendingGeneratedDoc.itemId === item.id
+                          && !savedDocumentUrl && (
+                          <GeneratedDocumentLinkCapture
+                            label={documentAction.workingLabel}
+                            onSave={(url) => {
+                              saveClientGeneratedDocument(selectedClient.id, item.id, url);
+                              setPendingGeneratedDoc(null);
+                            }}
+                          />
+                        )}
                         {item.id === "sla" && isChecked && (
                           <SlaUploadDropzone
                             clientId={selectedClient.id}
@@ -1858,13 +1959,19 @@ function DeleteIconButton({
 function OnboardingChecklistRow({
   item,
   checked,
+  documentAction,
+  savedDocumentUrl,
   onCheckedChange,
+  onNeedsGeneratedDocLink,
 }: {
   item: OnboardingChecklistItem;
   checked: boolean;
+  documentAction?: ChecklistDocumentAction;
+  savedDocumentUrl?: string;
   onCheckedChange: (checked: boolean) => void;
+  onNeedsGeneratedDocLink?: () => void;
 }) {
-  const hasResearchLink = item.id === "research-avatars";
+  const workingDocumentUrl = savedDocumentUrl ?? newGoogleDocUrl;
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50/70 p-3 transition hover:border-zinc-300 hover:bg-zinc-50 sm:flex-row sm:items-center sm:justify-between">
@@ -1879,7 +1986,7 @@ function OnboardingChecklistRow({
           {item.title}
         </span>
       </label>
-      {hasResearchLink && (
+      {documentAction && (
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -1887,10 +1994,10 @@ function OnboardingChecklistRow({
             size="sm"
             className="h-8 rounded-md bg-white"
             render={
-              <a href={researchAvatarsDocUrl} target="_blank" rel="noreferrer" />
+              <a href={documentAction.templateUrl} target="_blank" rel="noreferrer" />
             }
           >
-            Go research
+            {documentAction.templateLabel}
             <ExternalLink className="size-3.5" />
           </Button>
           <Button
@@ -1898,14 +2005,50 @@ function OnboardingChecklistRow({
             variant="outline"
             size="sm"
             className="h-8 rounded-md bg-white"
-            render={<a href={newResearchDocUrl} target="_blank" rel="noreferrer" />}
+            onClick={() => {
+              if (!savedDocumentUrl) {
+                onNeedsGeneratedDocLink?.();
+              }
+            }}
+            render={<a href={workingDocumentUrl} target="_blank" rel="noreferrer" />}
           >
-            Combine The Research Here
+            {documentAction.workingLabel}
             <ExternalLink className="size-3.5" />
           </Button>
         </div>
       )}
     </div>
+  );
+}
+
+function GeneratedDocumentLinkCapture({
+  label,
+  onSave,
+}: {
+  label: string;
+  onSave: (url: string) => void;
+}) {
+  const [url, setUrl] = useState("");
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave(url);
+        setUrl("");
+      }}
+      className="ml-7 grid gap-2 rounded-md border border-dashed border-zinc-300 bg-white p-3 sm:grid-cols-[1fr_auto]"
+    >
+      <Input
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        placeholder="Paste the Google Doc link here after creating it"
+        className="rounded-md"
+      />
+      <Button type="submit" variant="outline" size="sm" className="h-10 rounded-md bg-white">
+        Save {label}
+      </Button>
+    </form>
   );
 }
 
