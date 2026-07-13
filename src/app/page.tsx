@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
-  Activity,
   AlertTriangle,
   ArrowRight,
   BadgeCheck,
@@ -37,7 +36,6 @@ import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  activities as initialActivities,
   clients as initialClients,
   currency,
   leadSources,
@@ -46,7 +44,6 @@ import {
   services,
   tasks as initialTasks,
   users,
-  type Activity as CrmActivity,
   type Client,
   type Lead,
   type LeadStatus,
@@ -231,16 +228,6 @@ type ClientRow = {
   assigned_to: string | null;
 };
 
-type ActivityRow = {
-  id: string;
-  entity_type: "lead" | "client";
-  entity_id: string;
-  type: string;
-  message: string;
-  actor: string;
-  created_at: string | null;
-};
-
 type TaskRow = {
   id: string;
   title: string;
@@ -308,18 +295,6 @@ function mapClientRow(row: ClientRow, profileNames: Map<string, string>): Client
     notes: row.notes ?? "",
     originalLeadId: row.original_lead_id ?? undefined,
     assignedTo: row.assigned_to ? profileNames.get(row.assigned_to) ?? "Assigned" : "Unassigned",
-  };
-}
-
-function mapActivityRow(row: ActivityRow): CrmActivity {
-  return {
-    id: row.id,
-    entityId: row.entity_id,
-    entityType: row.entity_type,
-    type: row.type,
-    message: row.message,
-    actor: row.actor,
-    createdAt: row.created_at ?? new Date().toISOString(),
   };
 }
 
@@ -424,7 +399,6 @@ export default function Home() {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [clients, setClients] = useState<Client[]>(initialClients);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [activityLog, setActivityLog] = useState<CrmActivity[]>(initialActivities);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
   const [crmNotice, setCrmNotice] = useState("");
@@ -558,19 +532,6 @@ export default function Home() {
       }
 
       setTasks(((taskRows ?? []) as TaskRow[]).map((task) => mapTaskRow(task, profileNames, relatedNames)));
-
-      const { data: activityRows, error: activityError } = await supabase
-        .from("activities")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      if (activityError) {
-        setCrmNotice(`Could not load recent activity: ${activityError.message}`);
-        return;
-      }
-
-      setActivityLog(((activityRows ?? []) as ActivityRow[]).map(mapActivityRow));
       setCrmNotice("");
     }
 
@@ -1230,7 +1191,6 @@ export default function Home() {
                 dashboard={dashboard}
                 tasks={tasks}
                 leads={leads}
-                activities={activityLog}
                 addTask={addTask}
                 completeTask={completeTask}
                 deleteTask={deleteTask}
@@ -1439,7 +1399,6 @@ function DashboardView({
   dashboard,
   tasks,
   leads,
-  activities,
   addTask,
   completeTask,
   deleteTask,
@@ -1449,7 +1408,6 @@ function DashboardView({
   dashboard: Record<string, number>;
   tasks: Task[];
   leads: Lead[];
-  activities: CrmActivity[];
   addTask: (event: FormEvent<HTMLFormElement>) => void;
   completeTask: (taskId: string) => void;
   deleteTask: (taskId: string) => void;
@@ -1487,32 +1445,7 @@ function DashboardView({
         ))}
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <Card className="rounded-md border-zinc-200 bg-white shadow-none">
-          <CardHeader>
-            <CardTitle className="text-base">Recent lead activity</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            {activities.length === 0 && (
-              <div className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-500">
-                New leads and CRM updates will appear here once they start flowing in.
-              </div>
-            )}
-            {activities.map((item) => (
-              <div key={item.id} className="flex gap-3 border-b border-zinc-100 pb-4 last:border-0 last:pb-0">
-                <div className="mt-1 flex size-8 items-center justify-center rounded-md bg-zinc-100">
-                  <Activity className="size-4 text-zinc-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{item.type}</p>
-                  <p className="mt-1 text-sm text-zinc-600">{item.message}</p>
-                  <p className="mt-2 text-xs text-zinc-400">{format(parseISO(item.createdAt), "MMM d, HH:mm")} by {item.actor}</p>
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
+      <div className="grid gap-6">
         <Card className="rounded-md border-rose-200 bg-rose-50 shadow-none">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
