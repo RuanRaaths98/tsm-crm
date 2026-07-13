@@ -141,6 +141,8 @@ const offerPromptDocUrl =
   "https://docs.google.com/document/d/1kONdvkmBH_64JOFSNh5_Xg9xihAuWELK_DtoI15XO4c/edit?usp=sharing";
 const hooksDocUrl =
   "https://docs.google.com/document/d/1KIg69dzM-TJhC30cOFfcSkZoZ1jPMr4jEUpWRqt8bSo/edit?usp=sharing";
+const hooksPromptDocUrl =
+  "https://docs.google.com/document/d/1IO8mDPCR42EfEjynuCvYzhkllzNM9I2CHvf7ojlGcL0/edit?usp=sharing";
 const newGoogleDocUrl = "https://docs.new";
 const checklistDocumentActions: Partial<Record<string, ChecklistDocumentAction>> = {
   "research-avatars": {
@@ -155,7 +157,10 @@ const checklistDocumentActions: Partial<Record<string, ChecklistDocumentAction>>
     workingLabel: "Insert Your Offers Here",
   },
   "content-planning-hooks-testing": {
-    templates: [{ label: "Hooks Doc", url: hooksDocUrl }],
+    templates: [
+      { label: "Hooks Doc", url: hooksDocUrl },
+      { label: "Hooks Prompt", url: hooksPromptDocUrl },
+    ],
     workingLabel: "Insert Your Hooks Here",
   },
   "seo-geo-uber-suggest": {
