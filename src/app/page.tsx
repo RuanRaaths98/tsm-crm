@@ -12,12 +12,14 @@ import {
   CheckCircle2,
   CircleDollarSign,
   ClipboardList,
+  FileText,
   Flame,
   LayoutDashboard,
   Plus,
   Search,
   Settings,
   ShieldCheck,
+  Upload,
   X,
   UsersRound,
   type LucideIcon,
@@ -117,6 +119,90 @@ const onboardingChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
+const clientSlaDocumentsStorageKey = "tsm-crm-client-sla-documents";
+
+type SlaDocument = {
+  name: string;
+  size: number;
+  uploadedAt: string;
+};
+
+type ClientSlaDocuments = Record<string, SlaDocument>;
+
+const slaDatabaseName = "tsm-crm-sla-documents";
+const slaStoreName = "sla-pdfs";
+
+function formatFileSize(size: number) {
+  if (size < 1024 * 1024) {
+    return `${Math.max(1, Math.round(size / 1024))} KB`;
+  }
+
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function openSlaDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = window.indexedDB.open(slaDatabaseName, 1);
+
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(slaStoreName);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function putSlaPdf(clientId: string, file: File) {
+  const database = await openSlaDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(slaStoreName, "readwrite");
+    transaction.objectStore(slaStoreName).put(file, clientId);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error);
+    };
+  });
+}
+
+async function getSlaPdf(clientId: string) {
+  const database = await openSlaDatabase();
+
+  return new Promise<Blob | null>((resolve, reject) => {
+    const transaction = database.transaction(slaStoreName, "readonly");
+    const request = transaction.objectStore(slaStoreName).get(clientId);
+
+    request.onsuccess = () => {
+      database.close();
+      resolve((request.result as Blob | undefined) ?? null);
+    };
+    request.onerror = () => {
+      database.close();
+      reject(request.error);
+    };
+  });
+}
+
+async function deleteSlaPdf(clientId: string) {
+  const database = await openSlaDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(slaStoreName, "readwrite");
+    transaction.objectStore(slaStoreName).delete(clientId);
+    transaction.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error);
+    };
+  });
+}
 
 type ProfileRow = {
   id: string;
@@ -359,6 +445,24 @@ export default function Home() {
       return {};
     }
   });
+  const [clientSlaDocuments, setClientSlaDocuments] = useState<ClientSlaDocuments>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const saved = window.localStorage.getItem(clientSlaDocumentsStorageKey);
+
+    if (!saved) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(saved) as ClientSlaDocuments;
+    } catch {
+      window.localStorage.removeItem(clientSlaDocumentsStorageKey);
+      return {};
+    }
+  });
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [sourceFilter, setSourceFilter] = useState("All");
@@ -369,6 +473,10 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
   }, [clientChecklistState]);
+
+  useEffect(() => {
+    window.localStorage.setItem(clientSlaDocumentsStorageKey, JSON.stringify(clientSlaDocuments));
+  }, [clientSlaDocuments]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -758,6 +866,14 @@ export default function Home() {
       delete next[clientId];
       return next;
     });
+    setClientSlaDocuments((current) => {
+      const next = { ...current };
+      delete next[clientId];
+      return next;
+    });
+    deleteSlaPdf(clientId).catch(() => {
+      setCrmNotice("Could not remove the stored SLA PDF for this client.");
+    });
     setSelectedClientId((current) => (current === clientId ? fallbackClientId : current));
 
     const supabase = getSupabaseBrowserClient();
@@ -776,6 +892,59 @@ export default function Home() {
       if (error) {
         setCrmNotice(`Could not delete client: ${error.message}`);
       }
+    }
+  }
+
+  async function saveClientSlaFile(clientId: string, file: File) {
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setCrmNotice("Please upload the SLA as a PDF.");
+      return;
+    }
+
+    try {
+      await putSlaPdf(clientId, file);
+      setClientSlaDocuments((current) => ({
+        ...current,
+        [clientId]: {
+          name: file.name,
+          size: file.size,
+          uploadedAt: new Date().toISOString(),
+        },
+      }));
+      setCrmNotice("SLA PDF stored.");
+    } catch {
+      setCrmNotice("Could not store the SLA PDF in this browser.");
+    }
+  }
+
+  async function openClientSlaFile(clientId: string) {
+    try {
+      const file = await getSlaPdf(clientId);
+
+      if (!file) {
+        setCrmNotice("No SLA PDF is stored for this client yet.");
+        return;
+      }
+
+      const url = window.URL.createObjectURL(file);
+      window.open(url, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch {
+      setCrmNotice("Could not open the stored SLA PDF.");
+    }
+  }
+
+  async function removeClientSlaFile(clientId: string) {
+    try {
+      await deleteSlaPdf(clientId);
+      setClientSlaDocuments((current) => {
+        const next = { ...current };
+        delete next[clientId];
+        return next;
+      });
+      setCrmNotice("SLA PDF removed.");
+    } catch {
+      setCrmNotice("Could not remove the stored SLA PDF.");
     }
   }
 
@@ -1036,6 +1205,10 @@ export default function Home() {
                 deleteClient={deleteClient}
                 clientChecklistState={clientChecklistState}
                 toggleClientChecklistItem={toggleClientChecklistItem}
+                clientSlaDocuments={clientSlaDocuments}
+                saveClientSlaFile={saveClientSlaFile}
+                openClientSlaFile={openClientSlaFile}
+                removeClientSlaFile={removeClientSlaFile}
                 teamMembers={teamMembers}
                 clientStatusFilter={clientStatusFilter}
                 setClientStatusFilter={setClientStatusFilter}
@@ -1480,6 +1653,10 @@ function ClientsView({
   deleteClient,
   clientChecklistState,
   toggleClientChecklistItem,
+  clientSlaDocuments,
+  saveClientSlaFile,
+  openClientSlaFile,
+  removeClientSlaFile,
   teamMembers,
   clientStatusFilter,
   setClientStatusFilter,
@@ -1492,11 +1669,16 @@ function ClientsView({
   deleteClient: (clientId: string) => void;
   clientChecklistState: ClientChecklistState;
   toggleClientChecklistItem: (clientId: string, itemId: string, checked: boolean) => void;
+  clientSlaDocuments: ClientSlaDocuments;
+  saveClientSlaFile: (clientId: string, file: File) => void;
+  openClientSlaFile: (clientId: string) => void;
+  removeClientSlaFile: (clientId: string) => void;
   teamMembers: UserProfile[];
   clientStatusFilter: string;
   setClientStatusFilter: (value: string) => void;
 }) {
   const selectedChecklistItemIds = selectedClient ? clientChecklistState[selectedClient.id] ?? [] : [];
+  const selectedSlaDocument = selectedClient ? clientSlaDocuments[selectedClient.id] : undefined;
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -1639,16 +1821,30 @@ function ClientsView({
                   </Badge>
                 </div>
                 <div className="mt-4 grid gap-3">
-                  {onboardingChecklist.map((item) => (
-                    <OnboardingChecklistRow
-                      key={item.id}
-                      item={item}
-                      checked={selectedChecklistItemIds.includes(item.id)}
-                      onCheckedChange={(checked) =>
-                        toggleClientChecklistItem(selectedClient.id, item.id, checked)
-                      }
-                    />
-                  ))}
+                  {onboardingChecklist.map((item) => {
+                    const isChecked = selectedChecklistItemIds.includes(item.id);
+
+                    return (
+                      <div key={item.id} className="grid gap-2">
+                        <OnboardingChecklistRow
+                          item={item}
+                          checked={isChecked}
+                          onCheckedChange={(checked) =>
+                            toggleClientChecklistItem(selectedClient.id, item.id, checked)
+                          }
+                        />
+                        {item.id === "sla" && isChecked && (
+                          <SlaUploadDropzone
+                            clientId={selectedClient.id}
+                            document={selectedSlaDocument}
+                            onUpload={(file) => saveClientSlaFile(selectedClient.id, file)}
+                            onOpen={() => openClientSlaFile(selectedClient.id)}
+                            onRemove={() => removeClientSlaFile(selectedClient.id)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div>
@@ -1710,6 +1906,88 @@ function OnboardingChecklistRow({
         {item.title}
       </span>
     </label>
+  );
+}
+
+function SlaUploadDropzone({
+  clientId,
+  document,
+  onUpload,
+  onOpen,
+  onRemove,
+}: {
+  clientId: string;
+  document?: SlaDocument;
+  onUpload: (file: File) => void;
+  onOpen: () => void;
+  onRemove: () => void;
+}) {
+  const inputId = `sla-upload-${clientId}`;
+
+  function handleFiles(files: FileList | null) {
+    const file = files?.[0];
+
+    if (file) {
+      onUpload(file);
+    }
+  }
+
+  return (
+    <div
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        handleFiles(event.dataTransfer.files);
+      }}
+      className="ml-7 rounded-md border border-dashed border-zinc-300 bg-white p-4"
+    >
+      <input
+        id={inputId}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="sr-only"
+        onChange={(event) => {
+          handleFiles(event.target.files);
+          event.currentTarget.value = "";
+        }}
+      />
+      {document ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
+              <FileText className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{document.name}</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" className="rounded-md" onClick={onOpen}>
+              Open
+            </Button>
+            <label
+              htmlFor={inputId}
+              className="group/button inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 text-[0.8rem] font-medium transition-all hover:bg-zinc-100"
+            >
+              Replace
+            </label>
+            <DeleteIconButton ariaLabel={`Remove SLA PDF ${document.name}`} onClick={onRemove} />
+          </div>
+        </div>
+      ) : (
+        <label
+          htmlFor={inputId}
+          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md px-3 py-4 text-center transition hover:bg-zinc-50"
+        >
+          <Upload className="size-5 text-zinc-500" />
+          <span className="text-sm font-medium text-zinc-950">Drop the signed SLA PDF here</span>
+          <span className="text-xs text-zinc-500">or click to choose a PDF from your computer</span>
+        </label>
+      )}
+    </div>
   );
 }
 
