@@ -110,12 +110,21 @@ create table public.activities (
   created_at timestamptz not null default now()
 );
 
+create table public.client_workspace_state (
+  client_id uuid primary key references public.clients(id) on delete cascade,
+  checklist_items text[] not null default '{}',
+  generated_documents jsonb not null default '{}'::jsonb,
+  testing_tracker jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 alter table public.profiles enable row level security;
 alter table public.leads enable row level security;
 alter table public.clients enable row level security;
 alter table public.tasks enable row level security;
 alter table public.notes enable row level security;
 alter table public.activities enable row level security;
+alter table public.client_workspace_state enable row level security;
 alter table public.services enable row level security;
 alter table public.lead_sources enable row level security;
 
@@ -165,6 +174,26 @@ with check (public.is_admin() or author_id = auth.uid());
 
 create policy "team activities visible" on public.activities
 for select using (public.is_admin() or true);
+
+create policy "admin all client workspace state" on public.client_workspace_state
+for all using (public.is_admin())
+with check (public.is_admin());
+
+create policy "team assigned client workspace state" on public.client_workspace_state
+for all using (
+  exists (
+    select 1 from public.clients
+    where clients.id = client_workspace_state.client_id
+      and clients.assigned_to = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1 from public.clients
+    where clients.id = client_workspace_state.client_id
+      and clients.assigned_to = auth.uid()
+  )
+);
 
 create policy "settings admin write" on public.services
 for all using (public.is_admin())

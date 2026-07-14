@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
   AlertTriangle,
@@ -129,6 +129,12 @@ type ClientChecklistState = Record<string, string[]>;
 type ClientGeneratedDocuments = Record<string, Record<string, string>>;
 type ClientTestingTrackers = Record<string, Record<string, string>>;
 type ClientWorkspaceTab = "onboarding" | "testing";
+type ClientWorkspaceState = {
+  checklistItems?: string[];
+  generatedDocuments?: Record<string, string>;
+  testingTracker?: Record<string, string>;
+};
+type ClientWorkspaceStates = Record<string, ClientWorkspaceState>;
 
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
 const clientGeneratedDocumentsStorageKey = "tsm-crm-client-generated-documents";
@@ -372,6 +378,35 @@ async function loadClientSlaDocuments(
   return payload.documents ?? {};
 }
 
+async function loadClientWorkspaceStates(clientIds: string[]) {
+  if (!clientIds.length) {
+    return {};
+  }
+
+  const response = await fetch(`/api/client-workspace?clientIds=${encodeURIComponent(clientIds.join(","))}`);
+
+  if (!response.ok) {
+    return {};
+  }
+
+  const payload = (await response.json()) as { states?: ClientWorkspaceStates };
+
+  return payload.states ?? {};
+}
+
+async function saveClientWorkspaceState(clientId: string, state: ClientWorkspaceState) {
+  const response = await fetch("/api/client-workspace", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ clientId, ...state }),
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json()) as { error?: string };
+    throw new Error(payload.error ?? response.statusText);
+  }
+}
+
 function SelectField({
   value,
   onChange,
@@ -501,6 +536,8 @@ export default function Home() {
   const [temperatureFilter, setTemperatureFilter] = useState("All");
   const [assigneeFilter, setAssigneeFilter] = useState("All");
   const [clientStatusFilter, setClientStatusFilter] = useState("All");
+  const [clientWorkspaceSyncReady, setClientWorkspaceSyncReady] = useState(false);
+  const hasSyncedClientWorkspaceRef = useRef(false);
 
   useEffect(() => {
     window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
@@ -513,6 +550,38 @@ export default function Home() {
   useEffect(() => {
     window.localStorage.setItem(clientTestingTrackersStorageKey, JSON.stringify(clientTestingTrackers));
   }, [clientTestingTrackers]);
+
+  useEffect(() => {
+    if (!clientWorkspaceSyncReady) {
+      return;
+    }
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        await Promise.all(
+          clients.map((client) =>
+            saveClientWorkspaceState(client.id, {
+              checklistItems: clientChecklistState[client.id] ?? [],
+              generatedDocuments: clientGeneratedDocuments[client.id] ?? {},
+              testingTracker: clientTestingTrackers[client.id] ?? {},
+            }),
+          ),
+        );
+      } catch (error) {
+        setCrmNotice(
+          `Could not sync client workspace: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
+      }
+    }, 650);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    clientChecklistState,
+    clientGeneratedDocuments,
+    clientTestingTrackers,
+    clientWorkspaceSyncReady,
+    clients,
+  ]);
 
   useEffect(() => {
     async function loadLiveData() {
@@ -574,6 +643,41 @@ export default function Home() {
       setClients(liveClients);
       setSelectedClientId((current) => current || liveClients[0]?.id || "");
       setClientSlaDocuments(await loadClientSlaDocuments(liveClients.map((client) => client.id)));
+
+      const workspaceStates = await loadClientWorkspaceStates(liveClients.map((client) => client.id));
+      const workspaceEntries = Object.entries(workspaceStates);
+
+      if (workspaceEntries.length) {
+        setClientChecklistState((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            workspaceEntries
+              .filter(([, state]) => state.checklistItems)
+              .map(([clientId, state]) => [clientId, state.checklistItems ?? []]),
+          ),
+        }));
+        setClientGeneratedDocuments((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            workspaceEntries
+              .filter(([, state]) => state.generatedDocuments)
+              .map(([clientId, state]) => [clientId, state.generatedDocuments ?? {}]),
+          ),
+        }));
+        setClientTestingTrackers((current) => ({
+          ...current,
+          ...Object.fromEntries(
+            workspaceEntries
+              .filter(([, state]) => state.testingTracker)
+              .map(([clientId, state]) => [clientId, state.testingTracker ?? {}]),
+          ),
+        }));
+      }
+
+      if (!hasSyncedClientWorkspaceRef.current) {
+        hasSyncedClientWorkspaceRef.current = true;
+        setClientWorkspaceSyncReady(true);
+      }
 
       const relatedNames = new Map<string, string>([
         ...liveLeads.map((lead) => [`lead:${lead.id}`, lead.companyName || lead.fullName] as const),
@@ -916,6 +1020,11 @@ export default function Home() {
         supabase.from("tasks").delete().eq("related_type", "client").eq("related_id", clientId),
         supabase.from("clients").delete().eq("id", clientId),
         fetch("/api/client-slas", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId }),
+        }),
+        fetch("/api/client-workspace", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ clientId }),
