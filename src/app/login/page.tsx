@@ -12,6 +12,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 export default function LoginPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecoveryLoading, setIsRecoveryLoading] = useState(false);
   const supabase = getSupabaseBrowserClient();
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
@@ -38,6 +39,32 @@ export default function LoginPage() {
 
     await supabase.auth.getSession();
     window.location.href = "/";
+  }
+
+  async function sendPasswordRecovery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+
+    if (!supabase) {
+      setMessage("Add Supabase environment variables to enable team login.");
+      return;
+    }
+
+    setIsRecoveryLoading(true);
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("recoveryEmail"));
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/update-password`,
+    });
+
+    setIsRecoveryLoading(false);
+
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+
+    setMessage("Password setup email sent. Open the newest email to create a password.");
   }
 
   return (
@@ -85,6 +112,29 @@ export default function LoginPage() {
               >
                 {isLoading && <Loader2 className="size-4 animate-spin" />}
                 {isLoading ? "Signing in..." : "Sign in"}
+              </Button>
+            </form>
+            <form onSubmit={sendPasswordRecovery} className="mt-6 grid gap-3 border-t border-zinc-100 pt-5">
+              <div className="grid gap-2">
+                <Label htmlFor="recoveryEmail">Set or reset password</Label>
+                <Input
+                  id="recoveryEmail"
+                  name="recoveryEmail"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  className="rounded-md"
+                  placeholder="you@company.com"
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="outline"
+                className="h-10 rounded-md bg-white"
+                disabled={isRecoveryLoading}
+              >
+                {isRecoveryLoading && <Loader2 className="size-4 animate-spin" />}
+                {isRecoveryLoading ? "Sending..." : "Send password setup email"}
               </Button>
             </form>
           </CardContent>
