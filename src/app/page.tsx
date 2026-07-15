@@ -128,7 +128,7 @@ const seoGeoChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 type ClientGeneratedDocuments = Record<string, Record<string, string>>;
 type ClientTestingTrackers = Record<string, Record<string, string>>;
-type ClientWorkspaceTab = "onboarding" | "testing";
+type ClientWorkspaceTab = "onboarding" | "testing" | "services";
 type ClientWorkspaceState = {
   checklistItems?: string[];
   generatedDocuments?: Record<string, string>;
@@ -173,6 +173,18 @@ const creativeFormatOptions = [
   "Email",
   "Iphone notes",
 ];
+const clientServiceOptions = Array.from(
+  new Set([
+    "Google Business Profile Optimization",
+    ...services,
+    "SEO/GEO",
+    "Meta Ads",
+    "Google Ads",
+    "Content Planning",
+    "Content Shoot",
+    "Website Updates",
+  ]),
+);
 const researchAvatarsDocUrl =
   "https://docs.google.com/document/d/14K7dQQ7To_cl_hGl_PJJdsVYOx8CMFqb9tYk3ZV86dU/edit?usp=sharing";
 const offerDocUrl =
@@ -1127,6 +1139,89 @@ export default function Home() {
     setCrmNotice("SLA PDF removed from Supabase.");
   }
 
+  async function saveClientServiceDocument(clientId: string, serviceId: string, file: File) {
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setCrmNotice("Please upload the research document as a PDF.");
+      return;
+    }
+
+    try {
+      const form = new FormData();
+      form.set("clientId", clientId);
+      form.set("serviceId", serviceId);
+      form.set("file", file);
+      const response = await fetch("/api/client-service-documents", {
+        method: "POST",
+        body: form,
+      });
+
+      if (!response.ok) {
+        const payload = (await response.json()) as { error?: string };
+        setCrmNotice(`Could not upload service PDF: ${payload.error ?? response.statusText}`);
+        return;
+      }
+
+      const payload = (await response.json()) as { document: SlaDocument };
+      updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), JSON.stringify(payload.document));
+      setCrmNotice("Service research PDF uploaded to Supabase.");
+    } catch {
+      setCrmNotice("Could not upload the service research PDF.");
+    }
+  }
+
+  async function openClientServiceDocument(clientId: string, serviceId: string) {
+    const document = parseServiceDocument(
+      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchPdf")],
+    );
+
+    if (!document) {
+      setCrmNotice("No research PDF is stored for this service yet.");
+      return;
+    }
+
+    const response = await fetch(`/api/client-service-documents?path=${encodeURIComponent(document.path)}`);
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setCrmNotice(`Could not open the research PDF: ${payload.error ?? response.statusText}`);
+      return;
+    }
+
+    const payload = (await response.json()) as { signedUrl?: string };
+
+    if (!payload.signedUrl) {
+      setCrmNotice("Could not open the research PDF: missing signed URL.");
+      return;
+    }
+
+    window.open(payload.signedUrl, "_blank", "noopener,noreferrer");
+  }
+
+  async function removeClientServiceDocument(clientId: string, serviceId: string) {
+    const document = parseServiceDocument(
+      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchPdf")],
+    );
+
+    if (!document) {
+      return;
+    }
+
+    const response = await fetch("/api/client-service-documents", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: document.path }),
+    });
+
+    if (!response.ok) {
+      const payload = (await response.json()) as { error?: string };
+      setCrmNotice(`Could not remove the research PDF: ${payload.error ?? response.statusText}`);
+      return;
+    }
+
+    updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), "");
+    setCrmNotice("Service research PDF removed from Supabase.");
+  }
+
   function toggleClientChecklistItem(clientId: string, itemId: string, checked: boolean) {
     setClientChecklistState((current) => {
       const clientItems = new Set(current[clientId] ?? []);
@@ -1415,6 +1510,9 @@ export default function Home() {
                 saveClientGeneratedDocument={saveClientGeneratedDocument}
                 clientTestingTrackers={clientTestingTrackers}
                 updateClientTestingTracker={updateClientTestingTracker}
+                saveClientServiceDocument={saveClientServiceDocument}
+                openClientServiceDocument={openClientServiceDocument}
+                removeClientServiceDocument={removeClientServiceDocument}
                 clientSlaDocuments={clientSlaDocuments}
                 saveClientSlaFile={saveClientSlaFile}
                 openClientSlaFile={openClientSlaFile}
@@ -1841,6 +1939,9 @@ function ClientsView({
   saveClientGeneratedDocument,
   clientTestingTrackers,
   updateClientTestingTracker,
+  saveClientServiceDocument,
+  openClientServiceDocument,
+  removeClientServiceDocument,
   clientSlaDocuments,
   saveClientSlaFile,
   openClientSlaFile,
@@ -1861,6 +1962,9 @@ function ClientsView({
   saveClientGeneratedDocument: (clientId: string, itemId: string, url: string) => void;
   clientTestingTrackers: ClientTestingTrackers;
   updateClientTestingTracker: (clientId: string, field: string, value: string) => void;
+  saveClientServiceDocument: (clientId: string, serviceId: string, file: File) => void;
+  openClientServiceDocument: (clientId: string, serviceId: string) => void;
+  removeClientServiceDocument: (clientId: string, serviceId: string) => void;
   clientSlaDocuments: ClientSlaDocuments;
   saveClientSlaFile: (clientId: string, file: File) => void;
   openClientSlaFile: (clientId: string) => void;
@@ -1886,6 +1990,7 @@ function ClientsView({
         {([
           ["onboarding", "Onboarding"],
           ["testing", "Testing"],
+          ["services", "Services"],
         ] as [ClientWorkspaceTab, string][]).map(([tab, label]) => (
           <Button
             key={tab}
@@ -2132,17 +2237,312 @@ function ClientsView({
                 </p>
               </div>
             </div>
-            ) : (
+            ) : clientWorkspaceTab === "testing" ? (
               <TestingTrackerView
                 client={selectedClient}
                 tracker={selectedTestingTracker}
                 onChange={(field, value) => updateClientTestingTracker(selectedClient.id, field, value)}
+              />
+            ) : (
+              <ClientServicesView
+                client={selectedClient}
+                tracker={selectedTestingTracker}
+                onChange={(field, value) => updateClientTestingTracker(selectedClient.id, field, value)}
+                onUploadDocument={(serviceId, file) => saveClientServiceDocument(selectedClient.id, serviceId, file)}
+                onOpenDocument={(serviceId) => openClientServiceDocument(selectedClient.id, serviceId)}
+                onRemoveDocument={(serviceId) => removeClientServiceDocument(selectedClient.id, serviceId)}
               />
             )
           )}
         </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function ClientServicesView({
+  client,
+  tracker,
+  onChange,
+  onUploadDocument,
+  onOpenDocument,
+  onRemoveDocument,
+}: {
+  client: Client;
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+  onUploadDocument: (serviceId: string, file: File) => void;
+  onOpenDocument: (serviceId: string) => void;
+  onRemoveDocument: (serviceId: string) => void;
+}) {
+  const initialServiceIds = client.services.map(serviceOptionId);
+  const storedServiceIds = parseTestingList(tracker[clientServicesSelectedField]);
+  const selectedServiceIds = storedServiceIds.length ? storedServiceIds : initialServiceIds;
+  const availableServices = clientServiceOptions.filter(
+    (service) => !selectedServiceIds.includes(serviceOptionId(service)),
+  );
+  const [serviceToAdd, setServiceToAdd] = useState(availableServices[0] ?? "");
+  const selectedServiceToAdd = availableServices.includes(serviceToAdd) ? serviceToAdd : availableServices[0] ?? "";
+
+  function updateSelectedServices(nextServiceIds: string[]) {
+    onChange(clientServicesSelectedField, JSON.stringify(nextServiceIds));
+  }
+
+  function addService() {
+    if (!selectedServiceToAdd) {
+      return;
+    }
+
+    updateSelectedServices(Array.from(new Set([...selectedServiceIds, serviceOptionId(selectedServiceToAdd)])));
+  }
+
+  function removeService(serviceId: string) {
+    updateSelectedServices(selectedServiceIds.filter((selectedServiceId) => selectedServiceId !== serviceId));
+  }
+
+  return (
+    <div className="grid gap-5">
+      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div>
+            <p className="text-sm font-medium">Services list</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Add the services this client has, then store the obligations, research PDF, links, and notes in one place.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <SelectField value={selectedServiceToAdd} onChange={setServiceToAdd} className="w-full sm:w-72">
+              {availableServices.length ? (
+                availableServices.map((service) => (
+                  <option key={service} value={service}>
+                    {service}
+                  </option>
+                ))
+              ) : (
+                <option value="">All services added</option>
+              )}
+            </SelectField>
+            <Button
+              type="button"
+              className="h-10 rounded-md bg-[#f70805] hover:bg-[#d80f0c]"
+              onClick={addService}
+              disabled={!selectedServiceToAdd}
+            >
+              <Plus className="size-4" />
+              Add service
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {selectedServiceIds.length === 0 ? (
+        <div className="rounded-md border border-dashed border-zinc-300 bg-white p-8 text-center text-sm text-zinc-500">
+          Add a service to start tracking obligations and documents for {client.clientName}.
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {selectedServiceIds.map((serviceId) => (
+            <ServiceWorkspaceCard
+              key={serviceId}
+              serviceId={serviceId}
+              serviceName={serviceOptionLabel(serviceId)}
+              tracker={tracker}
+              onChange={onChange}
+              onUploadDocument={onUploadDocument}
+              onOpenDocument={onOpenDocument}
+              onRemoveDocument={onRemoveDocument}
+              onRemoveService={removeService}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ServiceWorkspaceCard({
+  serviceId,
+  serviceName,
+  tracker,
+  onChange,
+  onUploadDocument,
+  onOpenDocument,
+  onRemoveDocument,
+  onRemoveService,
+}: {
+  serviceId: string;
+  serviceName: string;
+  tracker: Record<string, string>;
+  onChange: (field: string, value: string) => void;
+  onUploadDocument: (serviceId: string, file: File) => void;
+  onOpenDocument: (serviceId: string) => void;
+  onRemoveDocument: (serviceId: string) => void;
+  onRemoveService: (serviceId: string) => void;
+}) {
+  const status = tracker[serviceWorkspaceField(serviceId, "status")] ?? "Not started";
+  const isComplete = status === "Done";
+  const document = parseServiceDocument(tracker[serviceWorkspaceField(serviceId, "researchPdf")]);
+
+  return (
+    <section className="grid gap-4 rounded-md border border-zinc-200 bg-white p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">{serviceName}</h3>
+            <span className={`rounded-md border px-2 py-0.5 text-xs font-medium ${serviceStatusTone(status)}`}>
+              {status}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-zinc-500">Track this service&apos;s obligations and supporting documents.</p>
+        </div>
+        <DeleteIconButton ariaLabel={`Remove service ${serviceName}`} onClick={() => onRemoveService(serviceId)} />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="flex cursor-pointer items-center gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-3">
+          <Checkbox
+            checked={isComplete}
+            onCheckedChange={(checked) =>
+              onChange(serviceWorkspaceField(serviceId, "status"), checked ? "Done" : "In progress")
+            }
+            aria-label={`Complete ${serviceName}`}
+            className="bg-white"
+          />
+          <span className="text-sm font-medium">Service complete</span>
+        </label>
+        <label className="grid gap-2">
+          <span className="text-xs font-medium text-zinc-600">Status</span>
+          <SelectField
+            value={status}
+            onChange={(value) => onChange(serviceWorkspaceField(serviceId, "status"), value)}
+            className={serviceStatusTone(status)}
+          >
+            {["Not started", "In progress", "Done"].map((value) => (
+              <option key={value} value={value}>
+                {value}
+              </option>
+            ))}
+          </SelectField>
+        </label>
+      </div>
+
+      <ServiceDocumentDropzone
+        serviceId={serviceId}
+        document={document}
+        onUpload={(file) => onUploadDocument(serviceId, file)}
+        onOpen={() => onOpenDocument(serviceId)}
+        onRemove={() => onRemoveDocument(serviceId)}
+      />
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <TestingInput
+          label="Documentation / Google Doc link"
+          field={serviceWorkspaceField(serviceId, "docLink")}
+          tracker={tracker}
+          onChange={onChange}
+        />
+        <TestingInput
+          label="Owner / next action"
+          field={serviceWorkspaceField(serviceId, "nextAction")}
+          tracker={tracker}
+          onChange={onChange}
+        />
+        <TestingTextarea
+          label="Obligations / deliverables"
+          field={serviceWorkspaceField(serviceId, "obligations")}
+          tracker={tracker}
+          onChange={onChange}
+        />
+        <TestingTextarea
+          label="Notes"
+          field={serviceWorkspaceField(serviceId, "notes")}
+          tracker={tracker}
+          onChange={onChange}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ServiceDocumentDropzone({
+  serviceId,
+  document,
+  onUpload,
+  onOpen,
+  onRemove,
+}: {
+  serviceId: string;
+  document?: SlaDocument;
+  onUpload: (file: File) => void;
+  onOpen: () => void;
+  onRemove: () => void;
+}) {
+  const inputId = `service-document-${serviceId}`;
+
+  function handleFiles(files: FileList | null) {
+    const file = files?.[0];
+
+    if (file) {
+      onUpload(file);
+    }
+  }
+
+  return (
+    <div
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={(event) => {
+        event.preventDefault();
+        handleFiles(event.dataTransfer.files);
+      }}
+      className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4"
+    >
+      <input
+        id={inputId}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="sr-only"
+        onChange={(event) => {
+          handleFiles(event.target.files);
+          event.currentTarget.value = "";
+        }}
+      />
+      {document ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
+              <FileText className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{document.name}</p>
+              <p className="mt-1 text-xs text-zinc-500">
+                {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" size="sm" className="rounded-md" onClick={onOpen}>
+              Open
+            </Button>
+            <label
+              htmlFor={inputId}
+              className="group/button inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 text-[0.8rem] font-medium transition-all hover:bg-zinc-100"
+            >
+              Replace
+            </label>
+            <DeleteIconButton ariaLabel={`Remove research PDF ${document.name}`} onClick={onRemove} />
+          </div>
+        </div>
+      ) : (
+        <label
+          htmlFor={inputId}
+          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md px-3 py-4 text-center transition hover:bg-white"
+        >
+          <Upload className="size-5 text-zinc-500" />
+          <span className="text-sm font-medium text-zinc-950">Drop the service research PDF here</span>
+          <span className="text-xs text-zinc-500">or click to choose a PDF for this service</span>
+        </label>
+      )}
     </div>
   );
 }
@@ -2348,6 +2748,62 @@ function ScopedTestingHint({ activeValue, label }: { activeValue: string; label:
 
 function scopedTestingField(group: string, activeValue: string, field: string) {
   return activeValue ? `${group}:${activeValue}:${field}` : `${group}:unselected:${field}`;
+}
+
+const clientServicesSelectedField = "services:selected";
+
+function serviceOptionId(serviceName: string) {
+  return serviceName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function serviceOptionLabel(serviceId: string) {
+  return clientServiceOptions.find((service) => serviceOptionId(service) === serviceId) ?? serviceId;
+}
+
+function serviceWorkspaceField(serviceId: string, field: string) {
+  return `service:${serviceId}:${field}`;
+}
+
+function parseServiceDocument(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<SlaDocument>;
+
+    if (
+      typeof parsed.name === "string"
+      && typeof parsed.path === "string"
+      && typeof parsed.uploadedAt === "string"
+    ) {
+      return {
+        name: parsed.name,
+        path: parsed.path,
+        uploadedAt: parsed.uploadedAt,
+        size: Number(parsed.size ?? 0),
+      };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function serviceStatusTone(status: string) {
+  if (status === "Done") {
+    return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  }
+
+  if (status === "In progress") {
+    return "border-amber-300 bg-amber-50 text-amber-800";
+  }
+
+  return "border-zinc-200 bg-zinc-50 text-zinc-700";
 }
 
 function TestingInput({
