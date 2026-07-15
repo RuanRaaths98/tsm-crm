@@ -2435,25 +2435,7 @@ function ServiceWorkspaceCard({
         onRemove={() => onRemoveDocument(serviceId)}
       />
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <TestingInput
-          label="Documentation / Google Doc link"
-          field={serviceWorkspaceField(serviceId, "docLink")}
-          tracker={tracker}
-          onChange={onChange}
-        />
-        <TestingInput
-          label="Owner / next action"
-          field={serviceWorkspaceField(serviceId, "nextAction")}
-          tracker={tracker}
-          onChange={onChange}
-        />
-        <TestingTextarea
-          label="Obligations / deliverables"
-          field={serviceWorkspaceField(serviceId, "obligations")}
-          tracker={tracker}
-          onChange={onChange}
-        />
+      <div className="grid gap-3">
         <TestingTextarea
           label="Notes"
           field={serviceWorkspaceField(serviceId, "notes")}
