@@ -3,6 +3,15 @@ import { createServerClient } from "@supabase/ssr";
 import { getSupabaseServiceClient } from "@/lib/supabase-server";
 
 const clientServiceDocumentsBucket = "client-service-documents";
+const allowedServiceDocumentMimeTypes = [
+  "application/pdf",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/csv",
+  "application/csv",
+  "image/jpeg",
+];
+const allowedServiceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg"];
 
 type ServiceDocument = {
   name: string;
@@ -16,6 +25,41 @@ function sanitizePathPart(value: string) {
     .toLowerCase()
     .replace(/[^a-z0-9.-]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function isAllowedServiceDocument(file: File) {
+  const fileName = file.name.toLowerCase();
+
+  return (
+    allowedServiceDocumentMimeTypes.includes(file.type)
+    || allowedServiceDocumentExtensions.some((extension) => fileName.endsWith(extension))
+  );
+}
+
+function getServiceDocumentContentType(file: File) {
+  const fileName = file.name.toLowerCase();
+
+  if (file.type) {
+    return file.type;
+  }
+
+  if (fileName.endsWith(".xlsx")) {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+
+  if (fileName.endsWith(".xls")) {
+    return "application/vnd.ms-excel";
+  }
+
+  if (fileName.endsWith(".csv")) {
+    return "text/csv";
+  }
+
+  if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
+    return "image/jpeg";
+  }
+
+  return "application/pdf";
 }
 
 async function getAuthenticatedUser(request: NextRequest) {
@@ -49,13 +93,18 @@ async function ensureServiceDocumentsBucket() {
   const { data } = await supabase.storage.getBucket(clientServiceDocumentsBucket);
 
   if (data) {
+    await supabase.storage.updateBucket(clientServiceDocumentsBucket, {
+      public: false,
+      fileSizeLimit: 20 * 1024 * 1024,
+      allowedMimeTypes: allowedServiceDocumentMimeTypes,
+    });
     return supabase;
   }
 
   const { error } = await supabase.storage.createBucket(clientServiceDocumentsBucket, {
     public: false,
     fileSizeLimit: 20 * 1024 * 1024,
-    allowedMimeTypes: ["application/pdf"],
+    allowedMimeTypes: allowedServiceDocumentMimeTypes,
   });
 
   if (error && !error.message.toLowerCase().includes("already exists")) {
@@ -114,11 +163,14 @@ export async function POST(request: NextRequest) {
     const file = form.get("file");
 
     if (!clientId || !serviceId || !(file instanceof File)) {
-      return NextResponse.json({ error: "Client, service, and PDF file are required." }, { status: 400 });
+      return NextResponse.json({ error: "Client, service, and file are required." }, { status: 400 });
     }
 
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      return NextResponse.json({ error: "Only PDF files can be uploaded." }, { status: 400 });
+    if (!isAllowedServiceDocument(file)) {
+      return NextResponse.json(
+        { error: "Only PDF, Excel, CSV, JPG, and JPEG files can be uploaded." },
+        { status: 400 },
+      );
     }
 
     const supabase = await ensureServiceDocumentsBucket();
@@ -133,7 +185,7 @@ export async function POST(request: NextRequest) {
     const storageFileName = `${Date.now()}-${sanitizePathPart(file.name) || "research.pdf"}`;
     const path = `${folder}/${storageFileName}`;
     const { error } = await supabase.storage.from(clientServiceDocumentsBucket).upload(path, file, {
-      contentType: "application/pdf",
+      contentType: getServiceDocumentContentType(file),
       upsert: true,
     });
 

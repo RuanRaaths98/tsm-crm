@@ -241,6 +241,15 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const serviceDocumentAccept = ".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,image/jpeg,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const serviceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg"];
+
+function isAllowedServiceDocument(file: File) {
+  const fileName = file.name.toLowerCase();
+
+  return serviceDocumentExtensions.some((extension) => fileName.endsWith(extension));
+}
+
 type ProfileRow = {
   id: string;
   full_name: string;
@@ -1141,8 +1150,8 @@ export default function Home() {
   }
 
   async function saveClientServiceDocument(clientId: string, serviceId: string, file: File) {
-    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-      setCrmNotice("Please upload the research document as a PDF.");
+    if (!isAllowedServiceDocument(file)) {
+      setCrmNotice("Please upload a PDF, Excel, CSV, JPG, or JPEG file.");
       return;
     }
 
@@ -1164,9 +1173,9 @@ export default function Home() {
 
       const payload = (await response.json()) as { document: SlaDocument };
       updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), JSON.stringify(payload.document));
-      setCrmNotice("Service research PDF uploaded to Supabase.");
+      setCrmNotice("Service file uploaded to Supabase.");
     } catch {
-      setCrmNotice("Could not upload the service research PDF.");
+      setCrmNotice("Could not upload the service file.");
     }
   }
 
@@ -1176,7 +1185,7 @@ export default function Home() {
     );
 
     if (!document) {
-      setCrmNotice("No research PDF is stored for this service yet.");
+      setCrmNotice("No file is stored for this service yet.");
       return;
     }
 
@@ -1184,14 +1193,14 @@ export default function Home() {
 
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
-      setCrmNotice(`Could not open the research PDF: ${payload.error ?? response.statusText}`);
+      setCrmNotice(`Could not open the service file: ${payload.error ?? response.statusText}`);
       return;
     }
 
     const payload = (await response.json()) as { signedUrl?: string };
 
     if (!payload.signedUrl) {
-      setCrmNotice("Could not open the research PDF: missing signed URL.");
+      setCrmNotice("Could not open the service file: missing signed URL.");
       return;
     }
 
@@ -1215,12 +1224,12 @@ export default function Home() {
 
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
-      setCrmNotice(`Could not remove the research PDF: ${payload.error ?? response.statusText}`);
+      setCrmNotice(`Could not remove the service file: ${payload.error ?? response.statusText}`);
       return;
     }
 
     updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), "");
-    setCrmNotice("Service research PDF removed from Supabase.");
+    setCrmNotice("Service file removed from Supabase.");
   }
 
   function toggleClientChecklistItem(clientId: string, itemId: string, checked: boolean) {
@@ -2309,7 +2318,7 @@ function ClientServicesView({
           <div>
             <p className="text-sm font-medium">Services list</p>
             <p className="mt-1 text-sm text-zinc-500">
-              Add the services this client has, then store the obligations, research PDF, links, and notes in one place.
+              Add the services this client has, then store service files and notes in one place.
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -2483,7 +2492,7 @@ function ServiceDocumentDropzone({
       <input
         id={inputId}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={serviceDocumentAccept}
         className="sr-only"
         onChange={(event) => {
           handleFiles(event.target.files);
@@ -2513,7 +2522,7 @@ function ServiceDocumentDropzone({
             >
               Replace
             </label>
-            <DeleteIconButton ariaLabel={`Remove research PDF ${document.name}`} onClick={onRemove} />
+            <DeleteIconButton ariaLabel={`Remove service file ${document.name}`} onClick={onRemove} />
           </div>
         </div>
       ) : (
@@ -2522,8 +2531,8 @@ function ServiceDocumentDropzone({
           className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md px-3 py-4 text-center transition hover:bg-white"
         >
           <Upload className="size-5 text-zinc-500" />
-          <span className="text-sm font-medium text-zinc-950">Drop the service research PDF here</span>
-          <span className="text-xs text-zinc-500">or click to choose a PDF for this service</span>
+          <span className="text-sm font-medium text-zinc-950">Drop the service file here</span>
+          <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
         </label>
       )}
     </div>
