@@ -180,6 +180,7 @@ const clientServiceOptions = Array.from(
     "SEO/GEO",
     "Meta Ads",
     "Google Ads",
+    "Content Marketing",
     "Content Planning",
     "Content Shoot",
     "Website Updates",
