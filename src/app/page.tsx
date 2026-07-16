@@ -247,8 +247,8 @@ function formatFileSize(size: number) {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const serviceDocumentAccept = ".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,image/jpeg,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const serviceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg"];
+const serviceDocumentAccept = ".pdf,.xls,.xlsx,.csv,.jpg,.jpeg,.png,image/jpeg,image/png,text/csv,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const serviceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg", ".png"];
 
 function isAllowedServiceDocument(file: File) {
   const fileName = file.name.toLowerCase();
@@ -2605,7 +2605,7 @@ function ServiceDocumentDropzone({
             <span className="text-sm font-medium text-zinc-950">
               {documents.length ? "Add another service file" : "Drop the service file here"}
             </span>
-            <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
+            <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, JPEG, or PNG</span>
           </label>
         </div>
       )}

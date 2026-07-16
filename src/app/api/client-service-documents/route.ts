@@ -10,8 +10,9 @@ const allowedServiceDocumentMimeTypes = [
   "text/csv",
   "application/csv",
   "image/jpeg",
+  "image/png",
 ];
-const allowedServiceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg"];
+const allowedServiceDocumentExtensions = [".pdf", ".xls", ".xlsx", ".csv", ".jpg", ".jpeg", ".png"];
 
 type ServiceDocument = {
   name: string;
@@ -57,6 +58,10 @@ function getServiceDocumentContentType(file: File) {
 
   if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
     return "image/jpeg";
+  }
+
+  if (fileName.endsWith(".png")) {
+    return "image/png";
   }
 
   return "application/pdf";
