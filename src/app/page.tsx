@@ -9,6 +9,7 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   CheckCircle2,
+  ChevronDown,
   CircleDollarSign,
   ClipboardList,
   ExternalLink,
@@ -2501,6 +2502,7 @@ function ServiceDocumentDropzone({
   onRemove: (path: string) => void;
 }) {
   const inputId = `service-document-${serviceId}`;
+  const [isOpen, setIsOpen] = useState(false);
 
   function handleFiles(files: FileList | null) {
     Array.from(files ?? []).forEach((file) => {
@@ -2510,12 +2512,20 @@ function ServiceDocumentDropzone({
 
   return (
     <div
-      onDragOver={(event) => event.preventDefault()}
+      onDragOver={(event) => {
+        if (isOpen) {
+          event.preventDefault();
+        }
+      }}
       onDrop={(event) => {
+        if (!isOpen) {
+          return;
+        }
+
         event.preventDefault();
         handleFiles(event.dataTransfer.files);
       }}
-      className="rounded-md border border-dashed border-zinc-300 bg-zinc-50 p-4"
+      className="rounded-md border border-zinc-200 bg-zinc-50"
     >
       <input
         id={inputId}
@@ -2528,55 +2538,77 @@ function ServiceDocumentDropzone({
           event.currentTarget.value = "";
         }}
       />
-      <div className="grid gap-3">
-        {documents.length > 0 && (
-          <div className="grid gap-2">
-            {documents.map((document) => (
-              <div
-                key={document.path}
-                className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
-                    <FileText className="size-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{document.name}</p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-md"
-                    onClick={() => onOpen(document.path)}
-                  >
-                    Open
-                  </Button>
-                  <DeleteIconButton
-                    ariaLabel={`Remove service file ${document.name}`}
-                    onClick={() => onRemove(document.path)}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <label
-          htmlFor={inputId}
-          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md px-3 py-4 text-center transition hover:bg-white"
-        >
-          <Upload className="size-5 text-zinc-500" />
-          <span className="text-sm font-medium text-zinc-950">
-            {documents.length ? "Add another service file" : "Drop the service file here"}
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-3 rounded-md px-4 py-3 text-left transition hover:bg-white"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-white text-zinc-600">
+            <FileText className="size-4" />
           </span>
-          <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
-        </label>
-      </div>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-zinc-950">Service files</span>
+            <span className="mt-0.5 block text-xs text-zinc-500">
+              {documents.length ? `${documents.length} file${documents.length === 1 ? "" : "s"} attached` : "No files attached"}
+            </span>
+          </span>
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-zinc-500 transition ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {isOpen && (
+        <div className="grid gap-3 border-t border-zinc-200 p-4">
+          {documents.length > 0 && (
+            <div className="grid gap-2">
+              {documents.map((document) => (
+                <div
+                  key={document.path}
+                  className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
+                      <FileText className="size-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{document.name}</p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-md"
+                      onClick={() => onOpen(document.path)}
+                    >
+                      Open
+                    </Button>
+                    <DeleteIconButton
+                      ariaLabel={`Remove service file ${document.name}`}
+                      onClick={() => onRemove(document.path)}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <label
+            htmlFor={inputId}
+            className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-zinc-300 bg-white px-3 py-4 text-center transition hover:bg-zinc-50"
+          >
+            <Upload className="size-5 text-zinc-500" />
+            <span className="text-sm font-medium text-zinc-950">
+              {documents.length ? "Add another service file" : "Drop the service file here"}
+            </span>
+            <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
+          </label>
+        </div>
+      )}
     </div>
   );
 }
