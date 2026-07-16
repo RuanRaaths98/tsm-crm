@@ -129,6 +129,11 @@ type ClientChecklistState = Record<string, string[]>;
 type ClientGeneratedDocuments = Record<string, Record<string, string>>;
 type ClientTestingTrackers = Record<string, Record<string, string>>;
 type ClientWorkspaceTab = "onboarding" | "testing" | "services";
+type ServiceChecklistItem = {
+  id: string;
+  label: string;
+  checked: boolean;
+};
 type ClientWorkspaceState = {
   checklistItems?: string[];
   generatedDocuments?: Record<string, string>;
@@ -2410,6 +2415,8 @@ function ServiceWorkspaceCard({
     ...parseServiceDocuments(tracker[serviceWorkspaceField(serviceId, "researchFiles")]),
     ...parseServiceDocuments(tracker[serviceWorkspaceField(serviceId, "researchPdf")]),
   ]);
+  const checklistField = serviceWorkspaceField(serviceId, "checklistItems");
+  const checklistItems = parseServiceChecklistItems(tracker[checklistField]);
 
   return (
     <section className="grid gap-4 rounded-md border border-zinc-200 bg-white p-4">
@@ -2460,6 +2467,12 @@ function ServiceWorkspaceCard({
         onUpload={(file) => onUploadDocument(serviceId, file)}
         onOpen={onOpenDocument}
         onRemove={(path) => onRemoveDocument(serviceId, path)}
+      />
+
+      <ServiceChecklistEditor
+        serviceName={serviceName}
+        items={checklistItems}
+        onChange={(items) => onChange(checklistField, JSON.stringify(items))}
       />
 
       <div className="grid gap-3">
@@ -2564,6 +2577,101 @@ function ServiceDocumentDropzone({
           <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
         </label>
       </div>
+    </div>
+  );
+}
+
+function ServiceChecklistEditor({
+  serviceName,
+  items,
+  onChange,
+}: {
+  serviceName: string;
+  items: ServiceChecklistItem[];
+  onChange: (items: ServiceChecklistItem[]) => void;
+}) {
+  const [newItemLabel, setNewItemLabel] = useState("");
+  const completedCount = items.filter((item) => item.checked).length;
+
+  function addChecklistItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const label = newItemLabel.trim();
+
+    if (!label) {
+      return;
+    }
+
+    onChange([
+      ...items,
+      {
+        id: `service-check-${Date.now()}`,
+        label,
+        checked: false,
+      },
+    ]);
+    setNewItemLabel("");
+  }
+
+  function updateChecklistItem(itemId: string, updates: Partial<ServiceChecklistItem>) {
+    onChange(items.map((item) => (item.id === itemId ? { ...item, ...updates } : item)));
+  }
+
+  function removeChecklistItem(itemId: string) {
+    onChange(items.filter((item) => item.id !== itemId));
+  }
+
+  return (
+    <div className="grid gap-3 rounded-md border border-zinc-200 bg-zinc-50 p-4">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium">Service checklist</p>
+          <p className="mt-1 text-xs text-zinc-500">Add obligations or steps for {serviceName}.</p>
+        </div>
+        <span className="text-xs font-medium text-zinc-500">
+          {completedCount}/{items.length} complete
+        </span>
+      </div>
+
+      {items.length > 0 && (
+        <div className="grid gap-2">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className={`grid gap-2 rounded-md border p-2 sm:grid-cols-[auto_1fr_auto] sm:items-center ${
+                item.checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white"
+              }`}
+            >
+              <Checkbox
+                checked={item.checked}
+                onCheckedChange={(checked) => updateChecklistItem(item.id, { checked: Boolean(checked) })}
+                aria-label={`Complete ${item.label}`}
+                className="bg-white"
+              />
+              <Input
+                value={item.label}
+                onChange={(event) => updateChecklistItem(item.id, { label: event.target.value })}
+                aria-label={`Checklist item for ${serviceName}`}
+                className={`h-9 bg-white ${item.checked ? "text-zinc-500 line-through" : ""}`}
+              />
+              <DeleteIconButton ariaLabel={`Remove checklist item ${item.label}`} onClick={() => removeChecklistItem(item.id)} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={addChecklistItem}>
+        <Input
+          value={newItemLabel}
+          onChange={(event) => setNewItemLabel(event.target.value)}
+          placeholder="Add checklist item"
+          aria-label={`Add checklist item for ${serviceName}`}
+          className="h-10 bg-white"
+        />
+        <Button type="submit" variant="outline" className="h-10 rounded-md">
+          <Plus className="size-4" />
+          Add item
+        </Button>
+      </form>
     </div>
   );
 }
@@ -2807,6 +2915,44 @@ function parseServiceDocuments(value?: string) {
 
 function uniqueServiceDocuments(documents: SlaDocument[]) {
   return Array.from(new Map(documents.map((document) => [document.path, document])).values());
+}
+
+function parseServiceChecklistItems(value?: string) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((item) => normalizeServiceChecklistItem(item))
+      .filter((item): item is ServiceChecklistItem => Boolean(item));
+  } catch {
+    return [];
+  }
+}
+
+function normalizeServiceChecklistItem(value: unknown) {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const item = value as Partial<ServiceChecklistItem>;
+
+  if (typeof item.id === "string" && typeof item.label === "string") {
+    return {
+      id: item.id,
+      label: item.label,
+      checked: Boolean(item.checked),
+    };
+  }
+
+  return undefined;
 }
 
 function normalizeServiceDocument(value: unknown) {
