@@ -20,6 +20,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  TrendingUp,
   Upload,
   X,
   UsersRound,
@@ -1498,13 +1499,7 @@ export default function Home() {
             {section === "dashboard" && (
               <DashboardView
                 dashboard={dashboard}
-                tasks={tasks}
-                leads={leads}
-                addTask={addTask}
-                completeTask={completeTask}
-                deleteTask={deleteTask}
-                teamMembers={teamMembers}
-                relatedItems={relatedItems}
+                clients={clients}
               />
             )}
             {section === "leads" && (
@@ -1711,48 +1706,100 @@ function AddTaskDialog({
 
 function DashboardView({
   dashboard,
-  tasks,
-  leads,
-  addTask,
-  completeTask,
-  deleteTask,
-  teamMembers,
-  relatedItems,
+  clients,
 }: {
   dashboard: Record<string, number>;
-  tasks: Task[];
-  leads: Lead[];
-  addTask: (event: FormEvent<HTMLFormElement>) => void;
-  completeTask: (taskId: string) => void;
-  deleteTask: (taskId: string) => void;
-  teamMembers: UserProfile[];
-  relatedItems: RelatedItem[];
+  clients: Client[];
 }) {
-  const metrics: [string, string | number, LucideIcon][] = [
-    ["Total leads", dashboard.totalLeads, UsersRound],
-    ["New leads", dashboard.newLeads, Plus],
-    ["Hot leads", dashboard.hotLeads, Flame],
-    ["Follow-ups today", dashboard.followUpsDue, CalendarClock],
-    ["Active clients", dashboard.activeClients, BadgeCheck],
-    ["Active retainer", currency(dashboard.activeRetainerValue), CircleDollarSign],
-    ["Deals won", dashboard.dealsWon, CheckCircle2],
-    ["Deals lost", dashboard.dealsLost, AlertTriangle],
-    ["Monthly pipeline", currency(dashboard.pipelineValue), CircleDollarSign],
+  const monthlyRetainerGrowth = buildMonthlyRetainerGrowth(clients);
+  const maxMonthlyRetainer = Math.max(...monthlyRetainerGrowth.map((month) => month.value), 1);
+  const currentMonthRetainer = monthlyRetainerGrowth.at(-1)?.value ?? 0;
+  const previousMonthRetainer = monthlyRetainerGrowth.at(-2)?.value ?? 0;
+  const monthlyRetainerChange = currentMonthRetainer - previousMonthRetainer;
+  const metrics: {
+    label: string;
+    value: string | number;
+    icon: LucideIcon;
+    tone: string;
+    iconTone: string;
+  }[] = [
+    {
+      label: "Total leads",
+      value: dashboard.totalLeads,
+      icon: UsersRound,
+      tone: "border-sky-200 bg-sky-50/80",
+      iconTone: "bg-sky-100 text-sky-700",
+    },
+    {
+      label: "New leads",
+      value: dashboard.newLeads,
+      icon: Plus,
+      tone: "border-cyan-200 bg-cyan-50/80",
+      iconTone: "bg-cyan-100 text-cyan-700",
+    },
+    {
+      label: "Hot leads",
+      value: dashboard.hotLeads,
+      icon: Flame,
+      tone: "border-rose-200 bg-rose-50/80",
+      iconTone: "bg-rose-100 text-rose-700",
+    },
+    {
+      label: "Follow-ups today",
+      value: dashboard.followUpsDue,
+      icon: CalendarClock,
+      tone: "border-amber-200 bg-amber-50/80",
+      iconTone: "bg-amber-100 text-amber-700",
+    },
+    {
+      label: "Active clients",
+      value: dashboard.activeClients,
+      icon: BadgeCheck,
+      tone: "border-emerald-200 bg-emerald-50/80",
+      iconTone: "bg-emerald-100 text-emerald-700",
+    },
+    {
+      label: "Active retainer",
+      value: currency(dashboard.activeRetainerValue),
+      icon: CircleDollarSign,
+      tone: "border-green-300 bg-green-50",
+      iconTone: "bg-green-100 text-green-800",
+    },
+    {
+      label: "Deals won",
+      value: dashboard.dealsWon,
+      icon: CheckCircle2,
+      tone: "border-lime-200 bg-lime-50/80",
+      iconTone: "bg-lime-100 text-lime-700",
+    },
+    {
+      label: "Deals lost",
+      value: dashboard.dealsLost,
+      icon: AlertTriangle,
+      tone: "border-zinc-200 bg-zinc-50",
+      iconTone: "bg-zinc-100 text-zinc-700",
+    },
+    {
+      label: "Monthly pipeline",
+      value: currency(dashboard.pipelineValue),
+      icon: CircleDollarSign,
+      tone: "border-indigo-200 bg-indigo-50/80",
+      iconTone: "bg-indigo-100 text-indigo-700",
+    },
   ];
-  const dueToday = tasks.filter((task) => isSameDay(parseISO(task.dueDate), today) && task.status !== "Done");
 
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
       <div className="grid gap-6">
         <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-          {metrics.map(([label, value, Icon]) => (
-            <Card key={String(label)} className="rounded-md border-zinc-200 bg-white shadow-none">
+          {metrics.map(({ label, value, icon: Icon, tone, iconTone }) => (
+            <Card key={label} className={`rounded-md shadow-none ${tone}`}>
               <CardContent className="flex items-center justify-between p-5">
                 <div>
-                  <p className="text-sm text-zinc-500">{label as string}</p>
+                  <p className="text-sm text-zinc-600">{label}</p>
                   <p className="mt-2 font-mono text-2xl font-semibold">{String(value)}</p>
                 </div>
-                <div className="flex size-10 items-center justify-center rounded-md bg-zinc-100 text-zinc-700">
+                <div className={`flex size-10 items-center justify-center rounded-md ${iconTone}`}>
                   <Icon className="size-5" />
                 </div>
               </CardContent>
@@ -1760,37 +1807,51 @@ function DashboardView({
           ))}
         </div>
 
-        <Card className="rounded-md border-rose-200 bg-rose-50 shadow-none">
+        <Card className="rounded-md border-emerald-200 bg-white shadow-none">
           <CardHeader>
-            <div className="flex items-center justify-between gap-3">
-              <CardTitle className="flex items-center gap-2 text-base text-rose-950">
-                <CalendarClock className="size-4" />
-                Needs attention today
-              </CardTitle>
-              <AddTaskDialog addTask={addTask} teamMembers={teamMembers} relatedItems={relatedItems} />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base text-emerald-950">
+                  <TrendingUp className="size-4" />
+                  Monthly retainer growth
+                </CardTitle>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Active client retainers by client start month.
+                </p>
+              </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-right">
+                <p className="text-xs font-medium text-emerald-700">Month change</p>
+                <p className="mt-1 font-mono text-lg font-semibold text-emerald-950">
+                  {monthlyRetainerChange >= 0 ? "+" : "-"}
+                  {currency(Math.abs(monthlyRetainerChange))}
+                </p>
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            {dueToday.length === 0 && leads.filter((lead) => lead.temperature === "Hot").length === 0 && (
-              <div className="rounded-md border border-dashed border-rose-200 bg-white/70 p-4 text-sm text-rose-900">
-                Nothing urgent yet. Add a task here when something needs attention today.
+          <CardContent>
+            <div className="grid gap-3">
+              {monthlyRetainerGrowth.map((month) => (
+                <div key={month.label} className="grid gap-2 sm:grid-cols-[4.5rem_1fr_7rem] sm:items-center">
+                  <span className="text-xs font-medium text-zinc-500">{month.label}</span>
+                  <div className="h-8 overflow-hidden rounded-md bg-zinc-100">
+                    <div
+                      className="h-full rounded-md bg-emerald-500"
+                      style={{
+                        width: month.value === 0
+                          ? "0%"
+                          : `${Math.max(6, Math.round((month.value / maxMonthlyRetainer) * 100))}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="font-mono text-sm font-semibold text-zinc-950 sm:text-right">
+                    {currency(month.value)}
+                  </span>
+                </div>
+              ))}
+              <div className="rounded-md border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                Current monthly retainer total: <span className="font-mono font-semibold">{currency(currentMonthRetainer)}</span>
               </div>
-            )}
-            {dueToday.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                completeTask={completeTask}
-                deleteTask={deleteTask}
-                showCompleteAction
-              />
-            ))}
-            {leads.filter((lead) => lead.temperature === "Hot").slice(0, 3).map((lead) => (
-              <div key={lead.id} className="rounded-md border border-amber-200 bg-white p-3">
-                <p className="text-sm font-medium">{lead.companyName}</p>
-                <p className="mt-1 text-xs text-zinc-500">{currency(lead.budget)} pipeline value. Follow up {lead.nextFollowUpDate}.</p>
-              </div>
-            ))}
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -1814,6 +1875,23 @@ function DashboardView({
       </aside>
     </div>
   );
+}
+
+function buildMonthlyRetainerGrowth(clients: Client[]) {
+  const activeClients = clients.filter((client) => client.status === "Active");
+
+  return Array.from({ length: 6 }, (_, index) => {
+    const monthDate = new Date(today.getFullYear(), today.getMonth() - 5 + index, 1);
+    const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+    const value = activeClients
+      .filter((client) => parseISO(client.startDate) <= monthEnd)
+      .reduce((sum, client) => sum + client.monthlyRetainerValue, 0);
+
+    return {
+      label: format(monthDate, "MMM"),
+      value,
+    };
+  });
 }
 
 function LeadsView(props: {
