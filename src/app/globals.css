@@ -128,3 +128,76 @@
     @apply font-sans;
   }
 }
+
+@layer components {
+  .crm-shell.dark {
+    color-scheme: dark;
+    background: oklch(0.16 0.01 260);
+    color: oklch(0.96 0 0);
+  }
+
+  .crm-shell.dark aside,
+  .crm-shell.dark header {
+    background: oklch(0.18 0.01 260 / 92%) !important;
+    border-color: oklch(1 0 0 / 12%) !important;
+  }
+
+  .crm-shell.dark [class*="bg-white"] {
+    background-color: oklch(0.22 0.012 260) !important;
+  }
+
+  .crm-shell.dark [class*="bg-zinc-50"],
+  .crm-shell.dark [class*="bg-zinc-100"] {
+    background-color: oklch(0.27 0.012 260) !important;
+  }
+
+  .crm-shell.dark [class*="border-zinc-200"],
+  .crm-shell.dark [class*="border-zinc-300"] {
+    border-color: oklch(1 0 0 / 14%) !important;
+  }
+
+  .crm-shell.dark [class*="text-zinc-950"],
+  .crm-shell.dark [class*="text-zinc-900"] {
+    color: oklch(0.96 0 0) !important;
+  }
+
+  .crm-shell.dark [class*="text-zinc-700"],
+  .crm-shell.dark [class*="text-zinc-600"],
+  .crm-shell.dark [class*="text-zinc-500"] {
+    color: oklch(0.74 0.01 260) !important;
+  }
+
+  .crm-shell.dark input,
+  .crm-shell.dark textarea,
+  .crm-shell.dark select {
+    background-color: oklch(0.19 0.012 260) !important;
+    border-color: oklch(1 0 0 / 16%) !important;
+    color: oklch(0.96 0 0) !important;
+  }
+
+  .crm-shell.dark input::placeholder,
+  .crm-shell.dark textarea::placeholder {
+    color: oklch(0.65 0.01 260) !important;
+  }
+
+  .crm-shell.dark [class*="bg-sky-50"],
+  .crm-shell.dark [class*="bg-cyan-50"],
+  .crm-shell.dark [class*="bg-indigo-50"] {
+    background-color: oklch(0.24 0.045 250) !important;
+  }
+
+  .crm-shell.dark [class*="bg-emerald-50"],
+  .crm-shell.dark [class*="bg-green-50"],
+  .crm-shell.dark [class*="bg-lime-50"] {
+    background-color: oklch(0.24 0.05 155) !important;
+  }
+
+  .crm-shell.dark [class*="bg-amber-50"] {
+    background-color: oklch(0.25 0.05 75) !important;
+  }
+
+  .crm-shell.dark [class*="bg-rose-50"],
+  .crm-shell.dark [class*="bg-red-50"] {
+    background-color: oklch(0.24 0.05 25) !important;
+  }
+}

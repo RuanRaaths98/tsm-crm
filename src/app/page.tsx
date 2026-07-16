@@ -16,10 +16,12 @@ import {
   FileText,
   Flame,
   LayoutDashboard,
+  Moon,
   Plus,
   Search,
   Settings,
   ShieldCheck,
+  Sun,
   TrendingUp,
   Upload,
   X,
@@ -146,6 +148,7 @@ type ClientWorkspaceStates = Record<string, ClientWorkspaceState>;
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
 const clientGeneratedDocumentsStorageKey = "tsm-crm-client-generated-documents";
 const clientTestingTrackersStorageKey = "tsm-crm-client-testing-trackers";
+const themeStorageKey = "tsm-crm-theme";
 const sharedPromptsDocUrl = "https://docs.google.com/document/d/1dREiRsvvr8IzQDH6JWbXeuI0pi0XrkIBW-UWjERADbc/edit?usp=sharing";
 const testingResultOptions = ["Working", "Not Working", "Needs More Time"];
 const hookTypeOptions = [
@@ -504,6 +507,19 @@ export default function Home() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>(users);
   const [crmNotice, setCrmNotice] = useState("");
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const savedTheme = window.localStorage.getItem(themeStorageKey);
+
+    if (savedTheme) {
+      return savedTheme === "dark";
+    }
+
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+  });
   const [selectedClientId, setSelectedClientId] = useState<string>(initialClients[0]?.id ?? "");
   const [clientChecklistState, setClientChecklistState] = useState<ClientChecklistState>(() => {
     if (typeof window === "undefined") {
@@ -568,6 +584,11 @@ export default function Home() {
   const [clientStatusFilter, setClientStatusFilter] = useState("All");
   const [clientWorkspaceSyncReady, setClientWorkspaceSyncReady] = useState(false);
   const hasSyncedClientWorkspaceRef = useRef(false);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", isDarkMode);
+    window.localStorage.setItem(themeStorageKey, isDarkMode ? "dark" : "light");
+  }, [isDarkMode]);
 
   useEffect(() => {
     window.localStorage.setItem(clientChecklistStorageKey, JSON.stringify(clientChecklistState));
@@ -1414,7 +1435,7 @@ export default function Home() {
     visibleClients.find((client) => client.id === selectedClientId) ?? visibleClients[0] ?? null;
 
   return (
-    <main className="min-h-[100dvh] bg-[#f7f8f5] text-zinc-950">
+    <main className={`crm-shell min-h-[100dvh] bg-[#f7f8f5] text-zinc-950 ${isDarkMode ? "dark" : ""}`}>
       <div className="grid min-h-[100dvh] grid-cols-1 lg:grid-cols-[280px_1fr]">
         <aside className="border-b border-zinc-200 bg-white/85 px-4 py-4 backdrop-blur lg:sticky lg:top-0 lg:h-[100dvh] lg:border-b-0 lg:border-r">
           <div className="flex items-center gap-3 px-2">
@@ -1476,6 +1497,17 @@ export default function Home() {
                 </h1>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+                  title={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+                  className="h-10 w-10 rounded-md bg-white"
+                  onClick={() => setIsDarkMode((current) => !current)}
+                >
+                  {isDarkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                </Button>
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
                   <Input
