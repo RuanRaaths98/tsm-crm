@@ -1742,24 +1742,24 @@ function DashboardView({
   const dueToday = tasks.filter((task) => isSameDay(parseISO(task.dueDate), today) && task.status !== "Done");
 
   return (
-    <>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map(([label, value, Icon]) => (
-          <Card key={String(label)} className="rounded-md border-zinc-200 bg-white shadow-none">
-            <CardContent className="flex items-center justify-between p-5">
-              <div>
-                <p className="text-sm text-zinc-500">{label as string}</p>
-                <p className="mt-2 font-mono text-2xl font-semibold">{String(value)}</p>
-              </div>
-              <div className="flex size-10 items-center justify-center rounded-md bg-zinc-100 text-zinc-700">
-                <Icon className="size-5" />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
       <div className="grid gap-6">
+        <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+          {metrics.map(([label, value, Icon]) => (
+            <Card key={String(label)} className="rounded-md border-zinc-200 bg-white shadow-none">
+              <CardContent className="flex items-center justify-between p-5">
+                <div>
+                  <p className="text-sm text-zinc-500">{label as string}</p>
+                  <p className="mt-2 font-mono text-2xl font-semibold">{String(value)}</p>
+                </div>
+                <div className="flex size-10 items-center justify-center rounded-md bg-zinc-100 text-zinc-700">
+                  <Icon className="size-5" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
         <Card className="rounded-md border-rose-200 bg-rose-50 shadow-none">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
@@ -1794,7 +1794,25 @@ function DashboardView({
           </CardContent>
         </Card>
       </div>
-    </>
+
+      <aside className="overflow-hidden rounded-md border border-zinc-200 bg-white xl:sticky xl:top-6">
+        <div className="border-b border-zinc-200 px-4 py-3">
+          <p className="text-sm font-medium">TSM mascot</p>
+          <p className="mt-1 text-xs text-zinc-500">Always-on dashboard energy.</p>
+        </div>
+        <div className="bg-zinc-50 p-3">
+          <video
+            className="h-[420px] w-full rounded-md bg-white object-cover sm:h-[520px] xl:h-[640px]"
+            src="/tsm-dashboard-mascot.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            aria-label="Looping TSM mascot video"
+          />
+        </div>
+      </aside>
+    </div>
   );
 }
 
