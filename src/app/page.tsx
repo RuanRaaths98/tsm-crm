@@ -1172,24 +1172,27 @@ export default function Home() {
       }
 
       const payload = (await response.json()) as { document: SlaDocument };
-      updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), JSON.stringify(payload.document));
+      const existingDocuments = parseServiceDocuments(
+        clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchFiles")],
+      );
+      updateClientTestingTracker(
+        clientId,
+        serviceWorkspaceField(serviceId, "researchFiles"),
+        JSON.stringify([...existingDocuments, payload.document]),
+      );
       setCrmNotice("Service file uploaded to Supabase.");
     } catch {
       setCrmNotice("Could not upload the service file.");
     }
   }
 
-  async function openClientServiceDocument(clientId: string, serviceId: string) {
-    const document = parseServiceDocument(
-      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchPdf")],
-    );
-
-    if (!document) {
-      setCrmNotice("No file is stored for this service yet.");
+  async function openClientServiceDocument(path: string) {
+    if (!path) {
+      setCrmNotice("No file path is stored for this service yet.");
       return;
     }
 
-    const response = await fetch(`/api/client-service-documents?path=${encodeURIComponent(document.path)}`);
+    const response = await fetch(`/api/client-service-documents?path=${encodeURIComponent(path)}`);
 
     if (!response.ok) {
       const payload = (await response.json()) as { error?: string };
@@ -1207,19 +1210,15 @@ export default function Home() {
     window.open(payload.signedUrl, "_blank", "noopener,noreferrer");
   }
 
-  async function removeClientServiceDocument(clientId: string, serviceId: string) {
-    const document = parseServiceDocument(
-      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchPdf")],
-    );
-
-    if (!document) {
+  async function removeClientServiceDocument(clientId: string, serviceId: string, path: string) {
+    if (!path) {
       return;
     }
 
     const response = await fetch("/api/client-service-documents", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: document.path }),
+      body: JSON.stringify({ path }),
     });
 
     if (!response.ok) {
@@ -1228,7 +1227,22 @@ export default function Home() {
       return;
     }
 
-    updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), "");
+    const existingDocuments = parseServiceDocuments(
+      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchFiles")],
+    );
+    updateClientTestingTracker(
+      clientId,
+      serviceWorkspaceField(serviceId, "researchFiles"),
+      JSON.stringify(existingDocuments.filter((document) => document.path !== path)),
+    );
+    const previousSingleDocument = parseServiceDocuments(
+      clientTestingTrackers[clientId]?.[serviceWorkspaceField(serviceId, "researchPdf")],
+    )[0];
+
+    if (previousSingleDocument?.path === path) {
+      updateClientTestingTracker(clientId, serviceWorkspaceField(serviceId, "researchPdf"), "");
+    }
+
     setCrmNotice("Service file removed from Supabase.");
   }
 
@@ -1973,8 +1987,8 @@ function ClientsView({
   clientTestingTrackers: ClientTestingTrackers;
   updateClientTestingTracker: (clientId: string, field: string, value: string) => void;
   saveClientServiceDocument: (clientId: string, serviceId: string, file: File) => void;
-  openClientServiceDocument: (clientId: string, serviceId: string) => void;
-  removeClientServiceDocument: (clientId: string, serviceId: string) => void;
+  openClientServiceDocument: (path: string) => void;
+  removeClientServiceDocument: (clientId: string, serviceId: string, path: string) => void;
   clientSlaDocuments: ClientSlaDocuments;
   saveClientSlaFile: (clientId: string, file: File) => void;
   openClientSlaFile: (clientId: string) => void;
@@ -2259,8 +2273,8 @@ function ClientsView({
                 tracker={selectedTestingTracker}
                 onChange={(field, value) => updateClientTestingTracker(selectedClient.id, field, value)}
                 onUploadDocument={(serviceId, file) => saveClientServiceDocument(selectedClient.id, serviceId, file)}
-                onOpenDocument={(serviceId) => openClientServiceDocument(selectedClient.id, serviceId)}
-                onRemoveDocument={(serviceId) => removeClientServiceDocument(selectedClient.id, serviceId)}
+                onOpenDocument={openClientServiceDocument}
+                onRemoveDocument={(serviceId, path) => removeClientServiceDocument(selectedClient.id, serviceId, path)}
               />
             )
           )}
@@ -2283,8 +2297,8 @@ function ClientServicesView({
   tracker: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onUploadDocument: (serviceId: string, file: File) => void;
-  onOpenDocument: (serviceId: string) => void;
-  onRemoveDocument: (serviceId: string) => void;
+  onOpenDocument: (path: string) => void;
+  onRemoveDocument: (serviceId: string, path: string) => void;
 }) {
   const initialServiceIds = client.services.map(serviceOptionId);
   const storedServiceIds = parseTestingList(tracker[clientServicesSelectedField]);
@@ -2386,13 +2400,16 @@ function ServiceWorkspaceCard({
   tracker: Record<string, string>;
   onChange: (field: string, value: string) => void;
   onUploadDocument: (serviceId: string, file: File) => void;
-  onOpenDocument: (serviceId: string) => void;
-  onRemoveDocument: (serviceId: string) => void;
+  onOpenDocument: (path: string) => void;
+  onRemoveDocument: (serviceId: string, path: string) => void;
   onRemoveService: (serviceId: string) => void;
 }) {
   const status = tracker[serviceWorkspaceField(serviceId, "status")] ?? "Not started";
   const isComplete = status === "Done";
-  const document = parseServiceDocument(tracker[serviceWorkspaceField(serviceId, "researchPdf")]);
+  const documents = uniqueServiceDocuments([
+    ...parseServiceDocuments(tracker[serviceWorkspaceField(serviceId, "researchFiles")]),
+    ...parseServiceDocuments(tracker[serviceWorkspaceField(serviceId, "researchPdf")]),
+  ]);
 
   return (
     <section className="grid gap-4 rounded-md border border-zinc-200 bg-white p-4">
@@ -2439,10 +2456,10 @@ function ServiceWorkspaceCard({
 
       <ServiceDocumentDropzone
         serviceId={serviceId}
-        document={document}
+        documents={documents}
         onUpload={(file) => onUploadDocument(serviceId, file)}
-        onOpen={() => onOpenDocument(serviceId)}
-        onRemove={() => onRemoveDocument(serviceId)}
+        onOpen={onOpenDocument}
+        onRemove={(path) => onRemoveDocument(serviceId, path)}
       />
 
       <div className="grid gap-3">
@@ -2459,25 +2476,23 @@ function ServiceWorkspaceCard({
 
 function ServiceDocumentDropzone({
   serviceId,
-  document,
+  documents,
   onUpload,
   onOpen,
   onRemove,
 }: {
   serviceId: string;
-  document?: SlaDocument;
+  documents: SlaDocument[];
   onUpload: (file: File) => void;
-  onOpen: () => void;
-  onRemove: () => void;
+  onOpen: (path: string) => void;
+  onRemove: (path: string) => void;
 }) {
   const inputId = `service-document-${serviceId}`;
 
   function handleFiles(files: FileList | null) {
-    const file = files?.[0];
-
-    if (file) {
+    Array.from(files ?? []).forEach((file) => {
       onUpload(file);
-    }
+    });
   }
 
   return (
@@ -2493,48 +2508,62 @@ function ServiceDocumentDropzone({
         id={inputId}
         type="file"
         accept={serviceDocumentAccept}
+        multiple
         className="sr-only"
         onChange={(event) => {
           handleFiles(event.target.files);
           event.currentTarget.value = "";
         }}
       />
-      {document ? (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
-              <FileText className="size-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{document.name}</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
-              </p>
-            </div>
+      <div className="grid gap-3">
+        {documents.length > 0 && (
+          <div className="grid gap-2">
+            {documents.map((document) => (
+              <div
+                key={document.path}
+                className="flex flex-col gap-3 rounded-md border border-zinc-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-red-50 text-rose-700">
+                    <FileText className="size-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{document.name}</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {formatFileSize(document.size)} uploaded {format(parseISO(document.uploadedAt), "MMM d, yyyy")}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-md"
+                    onClick={() => onOpen(document.path)}
+                  >
+                    Open
+                  </Button>
+                  <DeleteIconButton
+                    ariaLabel={`Remove service file ${document.name}`}
+                    onClick={() => onRemove(document.path)}
+                  />
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" size="sm" className="rounded-md" onClick={onOpen}>
-              Open
-            </Button>
-            <label
-              htmlFor={inputId}
-              className="group/button inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-md border border-zinc-200 bg-white px-2.5 text-[0.8rem] font-medium transition-all hover:bg-zinc-100"
-            >
-              Replace
-            </label>
-            <DeleteIconButton ariaLabel={`Remove service file ${document.name}`} onClick={onRemove} />
-          </div>
-        </div>
-      ) : (
+        )}
         <label
           htmlFor={inputId}
           className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md px-3 py-4 text-center transition hover:bg-white"
         >
           <Upload className="size-5 text-zinc-500" />
-          <span className="text-sm font-medium text-zinc-950">Drop the service file here</span>
+          <span className="text-sm font-medium text-zinc-950">
+            {documents.length ? "Add another service file" : "Drop the service file here"}
+          </span>
           <span className="text-xs text-zinc-500">PDF, Excel, CSV, JPG, or JPEG</span>
         </label>
-      )}
+      </div>
     </div>
   );
 }
@@ -2759,28 +2788,45 @@ function serviceWorkspaceField(serviceId: string, field: string) {
   return `service:${serviceId}:${field}`;
 }
 
-function parseServiceDocument(value?: string) {
+function parseServiceDocuments(value?: string) {
   if (!value) {
-    return undefined;
+    return [];
   }
 
   try {
-    const parsed = JSON.parse(value) as Partial<SlaDocument>;
+    const parsed = JSON.parse(value);
+    const documents = Array.isArray(parsed) ? parsed : [parsed];
 
-    if (
-      typeof parsed.name === "string"
-      && typeof parsed.path === "string"
-      && typeof parsed.uploadedAt === "string"
-    ) {
-      return {
-        name: parsed.name,
-        path: parsed.path,
-        uploadedAt: parsed.uploadedAt,
-        size: Number(parsed.size ?? 0),
-      };
-    }
+    return documents
+      .map((document) => normalizeServiceDocument(document))
+      .filter((document): document is SlaDocument => Boolean(document));
   } catch {
+    return [];
+  }
+}
+
+function uniqueServiceDocuments(documents: SlaDocument[]) {
+  return Array.from(new Map(documents.map((document) => [document.path, document])).values());
+}
+
+function normalizeServiceDocument(value: unknown) {
+  if (!value || typeof value !== "object") {
     return undefined;
+  }
+
+  const document = value as Partial<SlaDocument>;
+
+  if (
+    typeof document.name === "string"
+    && typeof document.path === "string"
+    && typeof document.uploadedAt === "string"
+  ) {
+    return {
+      name: document.name,
+      path: document.path,
+      uploadedAt: document.uploadedAt,
+      size: Number(document.size ?? 0),
+    };
   }
 
   return undefined;

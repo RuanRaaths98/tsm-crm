@@ -175,14 +175,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await ensureServiceDocumentsBucket();
     const folder = `${sanitizePathPart(clientId)}/${sanitizePathPart(serviceId)}`;
-    const { data: existingFiles } = await supabase.storage.from(clientServiceDocumentsBucket).list(folder);
-    const existingPaths = (existingFiles ?? []).map((existingFile) => `${folder}/${existingFile.name}`);
-
-    if (existingPaths.length) {
-      await supabase.storage.from(clientServiceDocumentsBucket).remove(existingPaths);
-    }
-
-    const storageFileName = `${Date.now()}-${sanitizePathPart(file.name) || "research.pdf"}`;
+    const storageFileName = `${Date.now()}-${sanitizePathPart(file.name) || "service-file"}`;
     const path = `${folder}/${storageFileName}`;
     const { error } = await supabase.storage.from(clientServiceDocumentsBucket).upload(path, file, {
       contentType: getServiceDocumentContentType(file),
