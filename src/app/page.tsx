@@ -129,7 +129,7 @@ const seoGeoChecklist: OnboardingChecklistItem[] = [
 type ClientChecklistState = Record<string, string[]>;
 type ClientGeneratedDocuments = Record<string, Record<string, string>>;
 type ClientTestingTrackers = Record<string, Record<string, string>>;
-type ClientWorkspaceTab = "onboarding" | "testing" | "services";
+type ClientWorkspaceTab = "onboarding" | "testing" | "services" | "prompts";
 type ServiceChecklistItem = {
   id: string;
   label: string;
@@ -145,6 +145,7 @@ type ClientWorkspaceStates = Record<string, ClientWorkspaceState>;
 const clientChecklistStorageKey = "tsm-crm-client-checklists";
 const clientGeneratedDocumentsStorageKey = "tsm-crm-client-generated-documents";
 const clientTestingTrackersStorageKey = "tsm-crm-client-testing-trackers";
+const sharedPromptsDocUrl = "https://docs.google.com/document/d/1dREiRsvvr8IzQDH6JWbXeuI0pi0XrkIBW-UWjERADbc/edit?usp=sharing";
 const testingResultOptions = ["Working", "Not Working", "Needs More Time"];
 const hookTypeOptions = [
   "Problem",
@@ -2021,6 +2022,7 @@ function ClientsView({
           ["onboarding", "Onboarding"],
           ["testing", "Testing"],
           ["services", "Services"],
+          ["prompts", "Prompts"],
         ] as [ClientWorkspaceTab, string][]).map(([tab, label]) => (
           <Button
             key={tab}
@@ -2273,7 +2275,7 @@ function ClientsView({
                 tracker={selectedTestingTracker}
                 onChange={(field, value) => updateClientTestingTracker(selectedClient.id, field, value)}
               />
-            ) : (
+            ) : clientWorkspaceTab === "services" ? (
               <ClientServicesView
                 client={selectedClient}
                 tracker={selectedTestingTracker}
@@ -2282,10 +2284,37 @@ function ClientsView({
                 onOpenDocument={openClientServiceDocument}
                 onRemoveDocument={(serviceId, path) => removeClientServiceDocument(selectedClient.id, serviceId, path)}
               />
+            ) : (
+              <ClientPromptsView />
             )
           )}
         </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+function ClientPromptsView() {
+  return (
+    <div className="grid gap-4">
+      <div className="rounded-md border border-zinc-200 bg-zinc-50 p-5">
+        <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <div>
+            <p className="text-sm font-medium">Shared prompts</p>
+            <p className="mt-1 text-sm leading-6 text-zinc-500">
+              Use this Google Doc as the team&apos;s prompt reference for research and related work.
+            </p>
+          </div>
+          <Button
+            type="button"
+            className="h-10 rounded-md bg-[#f70805] text-white hover:bg-[#d80f0c]"
+            render={<a href={sharedPromptsDocUrl} target="_blank" rel="noreferrer" />}
+          >
+            Open prompts doc
+            <ExternalLink className="size-4" />
+          </Button>
+        </div>
       </div>
     </div>
   );
